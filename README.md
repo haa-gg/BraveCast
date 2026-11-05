@@ -1,18 +1,18 @@
 # 🦁 BraveCast
 
-> Turn an old Mac into a high-performance, ad-free media receiver powered by **Brave Browser**, with native YouTube casting, Spotify Connect, and 1-click web streaming.
+> Turn an old Mac or Windows PC into a high-performance, ad-free media receiver powered by **Brave Browser**, with native YouTube casting, Spotify Connect, and 1-click web streaming.
 
 ---
 
 ## 📺 Overview
 
-Commercial streaming sticks like Google Chromecast or Apple TV are locked-down and cannot block ads. **BraveCast** transforms any repurposed Mac (such as an older MacBook or Mac mini plugged into a TV via HDMI) into a dedicated TV media hub that supports:
+Commercial streaming sticks like Google Chromecast or Apple TV are locked-down and cannot block ads. **BraveCast** transforms any repurposed Mac or Windows PC (such as an older laptop or mini PC plugged into a TV via HDMI) into a dedicated TV media hub that supports:
 
 1. **Native YouTube Casting (DIAL Protocol):** Tap the Cast button inside the official YouTube mobile app on iOS or Android, select **`Living Room TV (Mac)`**, and it launches directly into the official 10-foot YouTube TV interface in Brave—with **zero pre-roll or mid-roll ads** via Brave Shields.
 2. **Native Spotify Connect:** Runs a headless `librespot` daemon in the background with CoreAudio integration. It advertises on your local Wi-Fi as a high-fidelity Spotify speaker.
 3. **1-Click Web Stream Caster Extension:** A Manifest V3 Chrome/Brave extension that sniffs `.m3u8` and `.mp4` video streams from video websites and beams them directly to the TV in fullscreen.
 4. **Mobile Web Remote Dashboard:** A responsive, glassmorphic web remote accessible from any phone or browser over your local network or Tailscale (`http://<ip>:8099/`).
-5. **Automatic TV Wake & HDMI Signal Sync:** Uses `caffeinate` to wake the display output on playback commands, firing HDMI clock sync to auto-wake connected Smart TVs (e.g. Vizio, Samsung, LG).
+5. **Automatic TV Wake & HDMI Signal Sync:** Wakes the display output on playback commands (`caffeinate` on macOS, `SetThreadExecutionState` on Windows), firing HDMI clock sync to auto-wake connected Smart TVs (e.g. Vizio, Samsung, LG).
 
 ---
 
@@ -55,12 +55,17 @@ Commercial streaming sticks like Google Chromecast or Apple TV are locked-down a
 BraveCast/
 ├── receiver/                     # Runs on the TV-connected Mac
 │   ├── server.py                 # Multi-threaded HTTP & SSDP DIAL Daemon
+│   ├── platform_support.py       # macOS / Windows specifics (wake, keep-awake, kiosk control)
 │   ├── receiver.html             # Ambient standby screen + HLS/MP4 video player
 │   ├── remote.html               # Mobile and desktop Web Remote dashboard
 │   ├── hls.min.js                # Bundled HLS player library
 │   ├── com.glen.bravecast.plist  # macOS LaunchAgent configuration
 │   ├── com.glen.librespot.plist  # Spotify Connect LaunchAgent
-│   └── on_spotify_event.sh       # Spotify playback event hook (display wake)
+│   ├── on_spotify_event.sh       # Spotify playback event hook (macOS)
+│   └── on_spotify_event.ps1      # Spotify playback event hook (Windows)
+├── windows/
+│   ├── install.ps1               # One-shot Windows setup (firewall + startup task)
+│   └── uninstall.ps1
 ├── extension/                    # StreamCaster 2.0 Browser Extension
 │   ├── manifest.json             # Manifest V3 configuration
 │   ├── background.js             # Network stream sniffer & icon badge updater
@@ -76,7 +81,7 @@ BraveCast/
 
 ## 🚀 Quickstart Guide
 
-### 1. Set Up the Receiver Mac
+### 1. Set Up the Receiver (macOS)
 
 1. **Clone the repository:**
    ```bash
@@ -105,6 +110,28 @@ BraveCast/
    cp receiver/com.glen.librespot.plist ~/Library/LaunchAgents/
    launchctl load -w ~/Library/LaunchAgents/com.glen.librespot.plist
    ```
+
+---
+
+### 1b. Set Up the Receiver (Windows 10 / 11)
+
+1. Install [Python 3](https://www.python.org/downloads/) (tick **Add python.exe to PATH**) and [Brave](https://brave.com/download/).
+2. Clone the repo, then run the installer from an **Administrator** PowerShell:
+   ```powershell
+   git clone https://github.com/haa-gg/BraveCast.git
+   cd BraveCast
+   powershell -ExecutionPolicy Bypass -File windows\install.ps1
+   ```
+   It opens the firewall (TCP 8099, UDP 1900), registers a `BraveCast` scheduled task that starts at logon, and starts the receiver.
+3. To test without installing, just run `python receiver\server.py`.
+
+**Windows notes**
+* The receiver must run in your **logged-in desktop session** (that's why it's a logon task rather than a service) — enable auto-login and disable the lock screen on a dedicated TV PC.
+* Your network must be set to **Private** or phones won't discover the PC.
+* Set the HDMI output as the default audio device (Settings → System → Sound).
+* *(Optional)* Spotify Connect: build [librespot](https://github.com/librespot-org/librespot) (`cargo install librespot`) and run it with `--name "Living Room TV (PC)" --onevent "powershell -File <repo>\receiver\on_spotify_event.ps1"`.
+* Override defaults with environment variables: `BRAVECAST_BROWSER` (path to brave.exe), `BRAVECAST_NAME` (cast target name), `BRAVECAST_PORT`.
+* Remove everything with `windows\uninstall.ps1`.
 
 ---
 

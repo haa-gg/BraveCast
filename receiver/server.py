@@ -12,25 +12,39 @@ import queue
 import socket
 import struct
 import threading
+import uuid
+import platform
 import subprocess
+import platform_support as ps
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
+
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 PORT = int(os.environ.get("BRAVECAST_PORT", 8099))
 HOST = "0.0.0.0"
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
-DEVICE_UUID = "542696d5-e565-4000-8000-000000000000"
-FRIENDLY_NAME = "Living Room TV (Mac)"
+_MAC_HEX = f"{uuid.getnode():012x}"
+MAC_ADDR = ":".join(_MAC_HEX[i:i + 2] for i in range(0, 12, 2))
+DEVICE_UUID = os.environ.get("BRAVECAST_UUID") or f"{_MAC_HEX[:8]}-{_MAC_HEX[8:]}-4000-8000-000000000000"
+FRIENDLY_NAME = os.environ.get("BRAVECAST_NAME") or ("Living Room TV (Mac)" if ps.IS_MAC else "Living Room TV (PC)")
 SMART_TV_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 Native TV /0.0.1 TV Safari/538.1"
-KIOSK_DIR = os.path.expanduser("~/Library/Application Support/BraveSoftware/Brave-Kiosk")
+KIOSK_DIR = ps.kiosk_profile_dir()
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(("192.168.1.1", 80))
+        s.connect(("8.8.8.8", 80))  # UDP connect sends nothing; it just selects the outbound interface
         ip = s.getsockname()[0]
     except Exception:
-        ip = "192.168.1.19"
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            ip = "127.0.0.1"
     finally:
         s.close()
     return ip
@@ -106,10 +120,7 @@ state_mgr = ReceiverState()
 
 
 def wake_tv_and_screen():
-    try:
-        subprocess.run(["caffeinate", "-u", "-t", "4"], check=False)
-    except Exception as e:
-        print(f"Error waking display: {e}")
+    ps.wake_display()
 
 
 def launch_brave_kiosk(url, is_youtube=True):
@@ -117,10 +128,10 @@ def launch_brave_kiosk(url, is_youtube=True):
     wake_tv_and_screen()
     try:
         # 1. Terminate any previous Kiosk instance so flags like --kiosk apply fresh
-        subprocess.run(["pkill", "-9", "-f", "BraveSoftware/Brave-Kiosk"], check=False)
+        ps.kill_kiosk(KIOSK_DIR)
         time.sleep(0.3)
 
-        brave_bin = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+        brave_bin = ps.find_browser()
         cmd = [
             brave_bin,
             f"--user-data-dir={KIOSK_DIR}",
@@ -144,7 +155,7 @@ def launch_brave_kiosk(url, is_youtube=True):
 
         def activate_window():
             time.sleep(0.6)
-            subprocess.run(["osascript", "-e", 'tell application "Brave Browser" to activate'], check=False)
+            ps.activate_kiosk(KIOSK_DIR)
 
         threading.Thread(target=activate_window, daemon=True).start()
     except Exception as e:
@@ -152,12 +163,9 @@ def launch_brave_kiosk(url, is_youtube=True):
 
 
 def start_caffeinate():
-    try:
-        proc = subprocess.Popen(["caffeinate", "-d", "-i"])
-        return proc
-    except Exception as e:
-        print(f"Could not start caffeinate: {e}")
-        return None
+    keep_awake = ps.KeepAwake()
+    keep_awake.start()
+    return keep_awake
 
 
 # --- DIAL SSDP SERVER ---
@@ -180,8 +188,12 @@ class DialSsdpServer(threading.Thread):
                 pass
 
             sock.bind(("", self.mcast_port))
-            mreq = struct.pack("4sl", socket.inet_aton(self.mcast_group), socket.INADDR_ANY)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            try:
+                mreq = struct.pack("4s4s", socket.inet_aton(self.mcast_group), socket.inet_aton(self.local_ip))
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            except OSError:
+                mreq = struct.pack("4s4s", socket.inet_aton(self.mcast_group), socket.inet_aton("0.0.0.0"))
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         except Exception as e:
             print(f"⚠️ Could not bind SSDP port 1900: {e}")
             return
@@ -198,10 +210,10 @@ class DialSsdpServer(threading.Thread):
                         "CACHE-CONTROL: max-age=1800\r\n"
                         "EXT:\r\n"
                         "BOOTID.UPNP.ORG: 1\r\n"
-                        "SERVER: macOS/13.7 UPnP/1.1 BraveCast/2.0\r\n"
+                        f"SERVER: {platform.system()}/{platform.release()} UPnP/1.1 BraveCast/2.0\r\n"
                         "ST: urn:dial-multiscreen-org:service:dial:1\r\n"
                         f"USN: uuid:{DEVICE_UUID}::urn:dial-multiscreen-org:service:dial:1\r\n"
-                        f"WAKEUP: MAC=54:26:96:d5:e5:65;Timeout=10\r\n"
+                        f"WAKEUP: MAC={MAC_ADDR};Timeout=10\r\n"
                         "\r\n"
                     )
                     sock.sendto(response.encode("utf-8"), addr)
@@ -323,7 +335,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             self.send_json({
                 "status": "ok",
-                "device": "Glens-MBP-2",
+                "device": socket.gethostname(),
                 "name": FRIENDLY_NAME,
                 "version": "2.0",
                 "localIp": LOCAL_IP,
@@ -461,7 +473,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
             else:
                 wake_tv_and_screen()
-                subprocess.run(["osascript", "-e", 'tell application "Brave Browser" to activate'], check=False)
+                ps.activate_kiosk(KIOSK_DIR)
 
             state_mgr.broadcast("LOAD", stream_info)
 
@@ -482,10 +494,15 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 return
 
             if action in ("play", "toggle"):
-                subprocess.run(["caffeinate", "-u", "-t", "2"], check=False)
+                ps.wake_display()
 
             state_mgr.broadcast("CONTROL", {"action": action, "value": value})
             self.send_json({"success": True, "action": action, "value": value})
+            return
+
+        if path == "/api/wake":
+            ps.wake_display()
+            self.send_json({"success": True})
             return
 
         if path == "/api/receiver/status":
@@ -538,7 +555,7 @@ def main():
     finally:
         server.server_close()
         if caffeinate_proc:
-            caffeinate_proc.terminate()
+            caffeinate_proc.stop()
 
 
 if __name__ == "__main__":

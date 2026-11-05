@@ -396,6 +396,12 @@
     setInterval(updateClock, 1000);
     updateClock();
 
+    // Show this machine's real name/address instead of a hard-coded label
+    fetch('/api/ping').then(r => r.json()).then(info => {
+      if (info.name) document.querySelector('.device-title').textContent = info.name;
+      if (info.localIp) document.getElementById('endpoint-label').textContent = `http://${info.localIp}:${location.port || 80}`;
+    }).catch(() => {});
+
     // Fullscreen helper
     document.getElementById('fullscreen-btn').addEventListener('click', () => {
       if (!document.fullscreenElement) {
