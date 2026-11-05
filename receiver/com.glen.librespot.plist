@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.glen.librespot</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/librespot</string>
+        <string>--name</string>
+        <string>Living Room TV (Mac)</string>
+        <string>--backend</string>
+        <string>rodio</string>
+        <string>--enable-volume-normalisation</string>
+        <string>--initial-volume</string>
+        <string>100</string>
+        <string>--onevent</string>
+        <string>/Users/glen/Documents/StreamCaster/server/on_spotify_event.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/glen/Library/Logs/librespot.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/glen/Library/Logs/librespot_err.log</string>
+</dict>
+</plist>

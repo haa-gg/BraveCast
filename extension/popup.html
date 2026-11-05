@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    :root {
+      --bg: #090c15;
+      --card: #151b2a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent: #a855f7;
+      --accent-gradient: linear-gradient(135deg, #a855f7, #6366f1);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      width: 360px;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand h2 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .btn-gear {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+    }
+
+    .btn-gear:hover {
+      color: white;
+      background: rgba(255,255,255,0.06);
+    }
+
+    /* Target Device Card */
+    .device-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .device-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .dot.online {
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+    }
+
+    .dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+    }
+
+    .device-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .device-status {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Settings section (collapsible) */
+    #settings-section {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    #settings-section.open {
+      display: flex;
+    }
+
+    .input-host {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: white;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    /* Streams Container */
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    .stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .stream-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .stream-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .stream-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 230px;
+    }
+
+    .stream-type {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-beam {
+      flex: 2;
+      background: var(--accent-gradient);
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    .btn-beam:hover {
+      opacity: 0.95;
+    }
+
+    .btn-beam:active {
+      transform: scale(0.97);
+    }
+
+    .btn-local {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .btn-local:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: white;
+    }
+
+    /* Empty State */
+    .empty-state {
+      background: var(--card);
+      border: 1px dashed var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .empty-icon {
+      font-size: 24px;
+    }
+
+    .empty-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* Secondary Tools */
+    .quick-tools {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 12px;
+    }
+
+    .btn-tool {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      color: #e2e8f0;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background 0.2s;
+    }
+
+    .btn-tool:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Mini Remote Bar */
+    #mini-remote {
+      display: none;
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(99, 102, 241, 0.15));
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 12px;
+      padding: 10px 14px;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .mini-remote-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #c084fc;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .mini-remote-title {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #fff;
+    }
+
+    .mini-ctrl-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+    }
+
+    .mini-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: white;
+      font-size: 14px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .mini-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <span>🚀</span>
+      <h2>Stream Caster</h2>
+    </div>
+    <button class="btn-gear" id="toggle-settings-btn" title="Settings">⚙️</button>
+  </div>
+
+  <!-- Target Device Card -->
+  <div class="device-card">
+    <div class="device-info">
+      <div class="dot" id="device-dot"></div>
+      <div>
+        <div class="device-name">Glen's MacBook (2)</div>
+        <div class="device-status" id="device-status-text">Checking connection...</div>
+      </div>
+    </div>
+    <button class="btn-gear" id="refresh-device-btn" title="Refresh Connection">🔄</button>
+  </div>
+
+  <!-- Settings Section -->
+  <div id="settings-section">
+    <div class="section-title">Receiver Tailscale Host</div>
+    <input type="text" id="target-host-input" class="input-host" value="http://100.111.144.16:8099">
+    <button class="btn-local" id="save-host-btn" style="padding: 6px; font-weight: 600;">Save Host</button>
+  </div>
+
+  <!-- Mini Remote (appears when playing) -->
+  <div id="mini-remote">
+    <div class="mini-remote-header">
+      <span>📺 Now Playing on TV</span>
+      <span id="remote-state-pill" style="color: #4ade80;">PLAYING</span>
+    </div>
+    <div class="mini-remote-title" id="remote-title-label">Video Stream</div>
+    <div class="mini-ctrl-row">
+      <button class="mini-btn" id="m-btn-back" title="Rewind 10s">⏪ 10s</button>
+      <button class="mini-btn" id="m-btn-playpause" title="Play/Pause" style="background: var(--accent);">⏸️ Pause</button>
+      <button class="mini-btn" id="m-btn-fwd" title="Forward 30s">⏩ 30s</button>
+      <button class="mini-btn" id="m-btn-stop" title="Stop" style="background: rgba(239, 68, 68, 0.4);">⏹️ Stop</button>
+    </div>
+  </div>
+
+  <!-- Detected Streams -->
+  <div class="section-title">Detected Video Streams</div>
+  <div class="stream-list" id="streams-container">
+    <div class="empty-state">
+      <div class="empty-icon">🎬</div>
+      <div class="empty-text">
+        No video stream sniffed yet.<br>
+        Start playback on any movie/video site!
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Tools -->
+  <div class="quick-tools">
+    <button class="btn-tool" id="cast-tab-btn">
+      <span>🌐 Cast Current Web Page to MacBook</span>
+      <span>➔</span>
+    </button>
+    <button class="btn-tool" id="clean-page-btn">
+      <span>🛡️ Nuke Ads & Maximize Video Iframe</span>
+      <span>⚡</span>
+    </button>
+    <button class="btn-tool" id="clear-streams-btn" style="color: #94a3b8; font-size: 11px; justify-content: center;">
+      Clear History
+    </button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

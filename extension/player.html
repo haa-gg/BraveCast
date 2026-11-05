@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Stream Caster • Local Player</title>
+  <style>
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    video { width: 100%; height: 100%; outline: none; }
+    #cast-bar {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(15px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      padding: 10px 16px;
+      border-radius: 12px;
+      z-index: 10;
+      transition: opacity 0.5s ease;
+    }
+    .btn-beam {
+      background: linear-gradient(135deg, #a855f7, #6366f1);
+      border: none;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="cast-bar">
+    <span id="title-text" style="font-size: 13px; font-weight: 600;">Stream Playing</span>
+    <button class="btn-beam" id="beam-btn">🚀 Cast to Glen's MacBook</button>
+  </div>
+  <video id="video" controls autoplay playsinline></video>
+  <script src="hls.min.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const videoSrc = urlParams.get('url');
+    const video = document.getElementById('video');
+    const beamBtn = document.getElementById('beam-btn');
+
+    if (videoSrc) {
+      if (Hls.isSupported() && videoSrc.includes('.m3u8')) {
+        const hls = new Hls();
+        hls.loadSource(videoSrc);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          video.play().catch(() => {});
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl') || videoSrc.includes('.mp4')) {
+        video.src = videoSrc;
+        video.play().catch(() => {});
+      }
+    }
+
+    beamBtn.addEventListener('click', () => {
+      chrome.storage.local.get({ targetHost: "http://100.111.144.16:8099" }, (res) => {
+        fetch(`${res.targetHost}/api/cast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: videoSrc, title: document.title })
+        })
+        .then(() => {
+          beamBtn.textContent = "✅ Casted!";
+          setTimeout(() => { beamBtn.textContent = "🚀 Cast to Glen's MacBook"; }, 2000);
+        })
+        .catch(err => alert("Cast failed: " + err));
+      });
+    });
+
+    // Auto-hide cast bar after 5s
+    setTimeout(() => {
+      const bar = document.getElementById('cast-bar');
+      bar.style.opacity = '0';
+      document.addEventListener('mousemove', () => {
+        bar.style.opacity = '1';
+        clearTimeout(window.hideTimer);
+        window.hideTimer = setTimeout(() => { bar.style.opacity = '0'; }, 3000);
+      });
+    }, 4000);
+  </script>
+</body>
+</html>
