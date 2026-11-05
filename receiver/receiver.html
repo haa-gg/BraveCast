@@ -301,6 +301,10 @@
       opacity: 0 !important;
       pointer-events: none !important;
     }
+
+    body.hide-cursor, body.hide-cursor * {
+      cursor: none !important;
+    }
   </style>
 </head>
 <body>
@@ -542,9 +546,32 @@
       }
     });
 
+    // Auto-hide cursor when watching video
+    let mouseHideTimer = null;
+    window.addEventListener('mousemove', () => {
+      document.body.classList.remove('hide-cursor');
+      clearTimeout(mouseHideTimer);
+      if (currentStream) {
+        mouseHideTimer = setTimeout(() => {
+          document.body.classList.add('hide-cursor');
+        }, 2000);
+      }
+    });
+
     // Server-Sent Events listener for real-time control
     function initSSE() {
       const evtSource = new EventSource('/api/events');
+
+      evtSource.addEventListener('INIT', (e) => {
+        try {
+          const st = JSON.parse(e.data);
+          if (st.stream && st.stream.url && st.state === 'playing') {
+            loadStream(st.stream);
+          }
+        } catch(err) {
+          console.error('Parse INIT err:', err);
+        }
+      });
 
       evtSource.addEventListener('LOAD', (e) => {
         try {

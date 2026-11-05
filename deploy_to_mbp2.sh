@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 set -e
 
-REMOTE_HOST="glen@100.111.144.16"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "📡 Checking connection to Glen's MacBook (2)..."
-if ! ssh -o ConnectTimeout=3 -o BatchMode=yes "$REMOTE_HOST" "echo 'Connected!'" 2>/dev/null; then
-  echo "⚠️ Glen's MacBook (2) is currently asleep or unreachable."
+REMOTE_HOST=""
+for host in "glen@192.168.1.19" "glen@100.111.144.16"; do
+  if ssh -o ConnectTimeout=2 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$host" "echo 'Connected!'" 2>/dev/null; then
+    REMOTE_HOST="$host"
+    break
+  fi
+done
+
+if [ -z "$REMOTE_HOST" ]; then
+  echo "⚠️ Glen's MacBook (2) is currently asleep or unreachable via LAN (192.168.1.19) or Tailscale (100.111.144.16)."
   echo "👉 Please wake up Glen's MacBook (tap any key or open lid) and re-run this script."
   exit 1
 fi
+
+echo "✅ Connected via $REMOTE_HOST"
 
 echo "📦 Syncing BraveCast Receiver to Glen's MacBook (2)..."
 ssh -o BatchMode=yes "$REMOTE_HOST" "mkdir -p ~/Documents/StreamCaster/server ~/Library/LaunchAgents"

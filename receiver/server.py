@@ -116,17 +116,37 @@ def launch_brave_kiosk(url, is_youtube=True):
     """Launch Brave in dedicated, guaranteed fullscreen kiosk mode"""
     wake_tv_and_screen()
     try:
+        # 1. Terminate any previous Kiosk instance so flags like --kiosk apply fresh
+        subprocess.run(["pkill", "-9", "-f", "BraveSoftware/Brave-Kiosk"], check=False)
+        time.sleep(0.3)
+
         brave_bin = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
         cmd = [
             brave_bin,
             f"--user-data-dir={KIOSK_DIR}",
+            "--kiosk",
             "--start-fullscreen",
+            "--start-maximized",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-infobars",
+            "--disable-session-crashed-bubble",
+            "--hide-crash-restore-bubble",
+            "--autoplay-policy=no-user-gesture-required",
+            "--disable-features=Translate",
+            "--overscroll-history-navigation=0",
             f"--app={url}"
         ]
         if is_youtube:
             cmd.append(f"--user-agent={SMART_TV_UA}")
 
         subprocess.Popen(cmd)
+
+        def activate_window():
+            time.sleep(0.6)
+            subprocess.run(["osascript", "-e", 'tell application "Brave Browser" to activate'], check=False)
+
+        threading.Thread(target=activate_window, daemon=True).start()
     except Exception as e:
         print(f"Error launching Brave Kiosk: {e}")
 
@@ -434,8 +454,15 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             })
             state_mgr.add_history(stream_info)
 
-            # Wake TV and open receiver in fullscreen kiosk
-            launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
+            # Check if receiver is already connected via SSE
+            has_active_receiver = len(state_mgr.sse_queues) > 0
+            if not has_active_receiver:
+                # Wake TV and open receiver in fullscreen kiosk
+                launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
+            else:
+                wake_tv_and_screen()
+                subprocess.run(["osascript", "-e", 'tell application "Brave Browser" to activate'], check=False)
+
             state_mgr.broadcast("LOAD", stream_info)
 
             self.send_json({
