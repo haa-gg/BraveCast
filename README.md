@@ -101,7 +101,7 @@ BraveCast/
 
 ### ✨ Option A: Easy Double-Click Install (No Command Line Needed!)
 
-Don't want to touch a terminal? Just [Download the ZIP](https://github.com/haa-gg/BraveCast/archive/refs/heads/main.zip), unzip it, and double-click:
+Don't want to touch a terminal? Just [**Download `BraveCast-v1.0.0-Installer.zip`**](https://github.com/haa-gg/BraveCast/releases/latest/download/BraveCast-v1.0.0-Installer.zip), unzip it, and double-click:
 
 * **🍎 On a Mac:** Double-click **`Install BraveCast.app`** (or **`Install BraveCast (Mac).command`**).
   * *(First time tip: If macOS says the app is from an unidentified developer, **Right-Click → Open** and click **Open**).*

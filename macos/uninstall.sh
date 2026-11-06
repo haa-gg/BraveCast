@@ -19,3 +19,4 @@ if [ -d "$INSTALL_DIR" ]; then
 fi
 
 echo "✅ BraveCast has been uninstalled."
+

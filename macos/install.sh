@@ -202,3 +202,4 @@ else
     gui_alert "BraveCast Setup Warning" "The service was installed, but port 8099 did not respond yet. Check ~/Library/Logs/bravecast_err.log for details."
   fi
 fi
+
