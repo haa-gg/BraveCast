@@ -407,6 +407,10 @@
           <span>📺</span>
           <span>YouTube on TV (Ad-Free)</span>
         </button>
+        <button class="btn-launch" id="autoplay-toggle-btn" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc; flex: 1;">
+          <span>♾️</span>
+          <span id="autoplay-label">Autoplay: ON</span>
+        </button>
       </div>
     </div>
 
@@ -427,6 +431,7 @@
         <button class="btn-circle" id="btn-back" title="Rewind 10s">⏪</button>
         <button class="btn-circle large" id="btn-playpause" title="Play / Pause">▶️</button>
         <button class="btn-circle" id="btn-fwd" title="Forward 30s">⏩</button>
+        <button class="btn-circle" id="btn-skip" title="Next Video (Doomscroll Autopilot)">⏭️</button>
       </div>
 
       <div class="sub-controls">
@@ -464,6 +469,9 @@
     const btnPlayPause = document.getElementById('btn-playpause');
     const btnBack = document.getElementById('btn-back');
     const btnFwd = document.getElementById('btn-fwd');
+    const btnSkip = document.getElementById('btn-skip');
+    const btnAutoplayToggle = document.getElementById('autoplay-toggle-btn');
+    const autoplayLabel = document.getElementById('autoplay-label');
     const btnMute = document.getElementById('btn-mute');
     const volBar = document.getElementById('vol-bar');
     const btnFs = document.getElementById('btn-fs');
@@ -527,6 +535,8 @@
     btnPlayPause.addEventListener('click', () => sendControl('toggle'));
     btnBack.addEventListener('click', () => sendControl('seek', 'back'));
     btnFwd.addEventListener('click', () => sendControl('seek', 'fwd'));
+    btnSkip.addEventListener('click', () => sendControl('skip'));
+    btnAutoplayToggle.addEventListener('click', () => sendControl('toggle_autoplay'));
     btnMute.addEventListener('click', () => sendControl('mute'));
     btnFs.addEventListener('click', () => sendControl('fullscreen'));
     btnStop.addEventListener('click', () => sendControl('stop'));
@@ -571,6 +581,11 @@
             seekBar.value = data.currentTime;
             timeCurr.textContent = formatTime(data.currentTime);
             timeTotal.textContent = formatTime(data.duration);
+          }
+
+          if (data.autoplay && autoplayLabel) {
+            autoplayLabel.textContent = "Autoplay: " + (data.autoplay.enabled ? "ON" : "OFF");
+            btnAutoplayToggle.style.borderColor = data.autoplay.enabled ? "rgba(168, 85, 247, 0.6)" : "rgba(255, 255, 255, 0.2)";
           }
 
           if (typeof data.volume === 'number') {

@@ -18,10 +18,14 @@ import subprocess
 import platform_support as ps
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
+try:
+    from autoplay import YouTubeAutopilot
+except ImportError:
+    from receiver.autoplay import YouTubeAutopilot
 
 for _stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+        _stream.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -34,6 +38,7 @@ DEVICE_UUID = os.environ.get("BRAVECAST_UUID") or f"{_MAC_HEX[:8]}-{_MAC_HEX[8:]
 FRIENDLY_NAME = os.environ.get("BRAVECAST_NAME") or f"Living Room TV ({ps.default_device_label()})"
 SMART_TV_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 Native TV /0.0.1 TV Safari/538.1"
 KIOSK_DIR = ps.kiosk_profile_dir()
+CDP_PORT = int(os.environ.get("BRAVECAST_CDP_PORT", 9223))  # localhost-only DevTools port used to steer the kiosk (autoplay)
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -117,6 +122,10 @@ class ReceiverState:
                     self.sse_queues.remove(dq)
 
 state_mgr = ReceiverState()
+autopilot = YouTubeAutopilot(
+    CDP_PORT,
+    is_youtube_running=lambda: state_mgr.get_status().get("youtubeRunning", False)
+)
 
 
 def wake_tv_and_screen():
@@ -148,6 +157,8 @@ def launch_brave_kiosk(url, is_youtube=True):
             "--disable-features=Translate",
             "--overscroll-history-navigation=0",
             *ps.extra_browser_flags(),
+            f"--remote-debugging-port={CDP_PORT}",
+            "--remote-debugging-address=127.0.0.1",
             f"--app={url}"
         ]
         if is_youtube:
@@ -350,6 +361,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
         if path == "/api/status":
             st = state_mgr.get_status()
             st["history"] = state_mgr.get_history()
+            st["autoplay"] = autopilot.status()
             self.send_json(st)
             return
 
@@ -498,6 +510,17 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             if action in ("play", "toggle"):
                 ps.wake_display()
 
+            if action in ("skip", "next"):
+                autopilot.skip()
+                state_mgr.broadcast("CONTROL", {"action": "next", "value": None})
+                self.send_json({"success": True, "action": action})
+                return
+
+            if action == "toggle_autoplay":
+                autopilot.enabled = not autopilot.enabled
+                self.send_json({"success": True, "action": action, "autoplay": autopilot.status()})
+                return
+
             state_mgr.broadcast("CONTROL", {"action": action, "value": value})
             self.send_json({"success": True, "action": action, "value": value})
             return
@@ -543,6 +566,8 @@ def main():
     print(f"🚀 Starting BraveCast Receiver & DIAL Server on port {PORT}...")
     print(f"🏠 Local IP: {LOCAL_IP}")
     caffeinate_proc = start_caffeinate()
+
+    autopilot.start()
 
     ssdp_server = DialSsdpServer(LOCAL_IP, PORT)
     ssdp_server.start()
