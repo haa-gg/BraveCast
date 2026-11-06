@@ -5,6 +5,7 @@ Multi-threaded Python 3 HTTP Server with Dedicated Brave Kiosk Window, DIAL, and
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -124,7 +125,12 @@ class ReceiverState:
 state_mgr = ReceiverState()
 autopilot = YouTubeAutopilot(
     CDP_PORT,
-    is_youtube_running=lambda: state_mgr.get_status().get("youtubeRunning", False)
+    is_youtube_running=lambda: state_mgr.get_status().get("youtubeRunning", False),
+    on_player_state=state_mgr.update_status,
+)
+
+YT_URL_RE = re.compile(
+    r"(?:youtube\.com/(?:watch\?.*?\bv=|tv\?.*?\bv=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})"
 )
 
 
@@ -425,6 +431,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 query_parts.append(f"pairingCode={params['pairingCode'][0]}")
             if "v" in params:
                 query_parts.append(f"v={params['v'][0]}")
+                autopilot.notify_video(params["v"][0])
             if "t" in params:
                 query_parts.append(f"t={params['t'][0]}")
 
@@ -462,6 +469,33 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             url = data.get("url")
             if not url:
                 self.send_json({"error": "No url provided"}, 400)
+                return
+
+            yt_match = YT_URL_RE.search(url)
+            if yt_match:
+                vid = yt_match.group(1)
+                yt_url = f"https://www.youtube.com/tv?v={vid}"
+                autopilot.notify_video(vid)
+                launch_brave_kiosk(yt_url, is_youtube=True)
+                stream_info = {
+                    "url": yt_url,
+                    "title": data.get("title") or f"YouTube ({vid})",
+                    "pageUrl": url,
+                    "source": "youtube",
+                    "timestamp": int(time.time()),
+                }
+                state_mgr.update_status({
+                    "state": "playing",
+                    "youtubeRunning": True,
+                    "stream": stream_info,
+                    "currentTime": 0,
+                })
+                state_mgr.add_history(stream_info)
+                self.send_json({
+                    "success": True,
+                    "message": f"Casting YouTube video '{vid}' to {FRIENDLY_NAME}",
+                    "stream": stream_info,
+                })
                 return
 
             title = data.get("title") or url.split("/")[-1].split("?")[0] or "Video Stream"
@@ -520,6 +554,9 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 autopilot.enabled = not autopilot.enabled
                 self.send_json({"success": True, "action": action, "autoplay": autopilot.status()})
                 return
+
+            if action in ("toggle", "play", "pause", "seek", "mute", "volume"):
+                autopilot.control(action, value)
 
             state_mgr.broadcast("CONTROL", {"action": action, "value": value})
             self.send_json({"success": True, "action": action, "value": value})
