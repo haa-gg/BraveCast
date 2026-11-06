@@ -294,6 +294,15 @@ def kill_kiosk(profile_dir):
     else:
         _run(["pkill", "-9", "-f", profile_dir])
 
+    # Remove stale Chromium singleton locks left behind by `pkill -9` or background browser updates
+    for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        lock_path = os.path.join(profile_dir, lock_name)
+        try:
+            if os.path.lexists(lock_path):
+                os.unlink(lock_path)
+        except OSError:
+            pass
+
 
 def activate_kiosk(profile_dir=None):
     """Bring the kiosk window to the front."""

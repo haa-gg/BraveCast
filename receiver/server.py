@@ -21,8 +21,10 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 try:
     from autoplay import YouTubeAutopilot, yt_oembed, yt_search
+    import doctor
 except ImportError:
     from receiver.autoplay import YouTubeAutopilot, yt_oembed, yt_search
+    from receiver import doctor
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -313,6 +315,7 @@ def launch_brave_kiosk(url, is_youtube=True):
             *ps.extra_browser_flags(),
             f"--remote-debugging-port={CDP_PORT}",
             "--remote-debugging-address=127.0.0.1",
+            "--remote-allow-origins=*",
             f"--app={url}"
         ]
         if is_youtube:
@@ -650,6 +653,12 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             self.send_json(st)
             return
 
+        if path == "/api/doctor":
+            params = parse_qs(parsed.query)
+            run_cdp = (params.get("cdp") or ["0"])[0] == "1"
+            self.send_json(doctor.run_all_checks(include_headless_cdp=run_cdp))
+            return
+
         if path == "/api/youtube/search":
             params = parse_qs(parsed.query)
             q = (params.get("q") or [""])[0].strip()
@@ -921,11 +930,24 @@ class BraveCastHandler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {args[0]} {args[1]}\n")
 
 
+def _maintenance_loop():
+    """Background self-maintenance: keep SMART_TV_UA and InnerTube client version fresh when idle."""
+    global SMART_TV_UA
+    while True:
+        try:
+            if not is_anything_playing():
+                SMART_TV_UA = doctor.resolve_smart_tv_ua()
+        except Exception as e:
+            print(f"[maintenance] UA check warning: {e}")
+        time.sleep(6 * 3600)
+
+
 def main():
     print(f"🚀 Starting BraveCast Receiver & DIAL Server on port {PORT}...")
     print(f"🏠 Local IP: {LOCAL_IP}")
     caffeinate_proc = start_caffeinate()
 
+    threading.Thread(target=_maintenance_loop, daemon=True).start()
     autopilot.start()
 
     ssdp_server = DialSsdpServer(LOCAL_IP, PORT)

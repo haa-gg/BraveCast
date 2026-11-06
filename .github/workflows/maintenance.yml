@@ -1,0 +1,27 @@
+name: BraveCast Compatibility & Upstream Canary
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Weekly canary check (Mondays at 09:00 UTC) against live YouTube InnerTube & Chromium
+    - cron: '0 9 * * 1'
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run BraveCast Doctor (YouTube InnerTube, oEmbed, Smart-TV UA, and Headless Chromium CDP)
+        env:
+          BRAVECAST_BROWSER: google-chrome-stable
+        run: |
+          python3 receiver/doctor.py

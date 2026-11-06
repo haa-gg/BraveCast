@@ -114,13 +114,43 @@ def yt_oembed(video_id):
         }
 
 
+_CACHED_CLIENT_VER = None
+_CACHED_CLIENT_VER_TS = 0.0
+
+
+def innertube_client_version(force_scrape=False):
+    """Return a current YouTube InnerTube WEB clientVersion so requests don't expire over time."""
+    global _CACHED_CLIENT_VER, _CACHED_CLIENT_VER_TS
+    now = time.time()
+    if _CACHED_CLIENT_VER and not force_scrape and (now - _CACHED_CLIENT_VER_TS < 86400):
+        return _CACHED_CLIENT_VER
+    if force_scrape:
+        try:
+            req = urllib.request.Request(
+                "https://www.youtube.com/",
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                html = r.read(250000).decode("utf-8", errors="ignore")
+            m = re.search(r'"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"', html)
+            if m:
+                _CACHED_CLIENT_VER = m.group(1)
+                _CACHED_CLIENT_VER_TS = now
+                return _CACHED_CLIENT_VER
+        except Exception:
+            pass
+    _CACHED_CLIENT_VER = f"2.{time.strftime('%Y%m%d')}.00.00"
+    _CACHED_CLIENT_VER_TS = now
+    return _CACHED_CLIENT_VER
+
+
 def yt_search(query, limit=6):
     """Search YouTube via InnerTube (no API key required) for the Web Remote Jam search bar."""
     if not query or not query.strip():
         return []
     body = {
         "context": {
-            "client": {"clientName": "WEB", "clientVersion": "2.20250101.00.00", "hl": "en", "gl": "US"}
+            "client": {"clientName": "WEB", "clientVersion": innertube_client_version(), "hl": "en", "gl": "US"}
         },
         "query": query.strip(),
     }
@@ -176,7 +206,7 @@ def innertube_next(video_id, exclude):
     """Ask YouTube what it would autoplay after `video_id` (same pick as the 'Up next' video)."""
     exclude = set(exclude or ()) | {video_id}
     body = {
-        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20250101.00.00", "hl": "en", "gl": "US"}},
+        "context": {"client": {"clientName": "WEB", "clientVersion": innertube_client_version(), "hl": "en", "gl": "US"}},
         "videoId": video_id,
     }
     req = urllib.request.Request(
