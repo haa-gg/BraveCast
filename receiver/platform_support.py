@@ -304,8 +304,59 @@ def kill_kiosk(profile_dir):
             pass
 
 
+def park_cursor():
+    """
+    Move the OS mouse pointer to the bottom-right edge of the screen so it never sits
+    in the middle of a video on the TV (complementing CSS `cursor: none` inside the kiosk).
+    Disable with BRAVECAST_PARK_CURSOR=0.
+    """
+    if os.environ.get("BRAVECAST_PARK_CURSOR") == "0":
+        return
+    try:
+        if IS_MAC:
+            import ctypes
+
+            class _CGPoint(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+            cg = ctypes.cdll.LoadLibrary(
+                "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+            )
+            cg.CGMainDisplayID.argtypes = []
+            cg.CGMainDisplayID.restype = ctypes.c_uint32
+            cg.CGDisplayPixelsWide.argtypes = [ctypes.c_uint32]
+            cg.CGDisplayPixelsWide.restype = ctypes.c_size_t
+            cg.CGDisplayPixelsHigh.argtypes = [ctypes.c_uint32]
+            cg.CGDisplayPixelsHigh.restype = ctypes.c_size_t
+            cg.CGWarpMouseCursorPosition.argtypes = [_CGPoint]
+            cg.CGWarpMouseCursorPosition.restype = ctypes.c_int32
+            cg.CGAssociateMouseAndMouseCursorPosition.argtypes = [ctypes.c_int32]
+            cg.CGAssociateMouseAndMouseCursorPosition.restype = ctypes.c_int32
+
+            main_id = cg.CGMainDisplayID()
+            w = int(cg.CGDisplayPixelsWide(main_id) or 1920)
+            h = int(cg.CGDisplayPixelsHigh(main_id) or 1080)
+            cg.CGWarpMouseCursorPosition(_CGPoint(float(max(0, w - 2)), float(max(0, h - 2))))
+            cg.CGAssociateMouseAndMouseCursorPosition(1)
+        elif IS_WINDOWS:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            w = int(user32.GetSystemMetrics(0) or 1920)
+            h = int(user32.GetSystemMetrics(1) or 1080)
+            user32.SetCursorPos(max(0, w - 2), max(0, h - 2))
+        elif IS_LINUX:
+            ensure_display_env()
+            if os.environ.get("DISPLAY") and shutil.which("xdotool"):
+                _run(["xdotool", "mousemove", "99999", "99999"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 def activate_kiosk(profile_dir=None):
-    """Bring the kiosk window to the front."""
+    """Bring the kiosk window to the front and park the mouse cursor out of view."""
+    park_cursor()
     if IS_MAC:
         _run(["osascript", "-e", 'tell application "Brave Browser" to activate'])
     elif IS_WINDOWS:

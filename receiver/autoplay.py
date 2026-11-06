@@ -31,6 +31,16 @@ VIDEO_ID_RE = re.compile(r"[?&]v=([A-Za-z0-9_-]{11})")
 CHOOSER_RE = re.compile(r"watch as guest", re.I)
 
 PROBE_JS = """JSON.stringify((function(){
+  var cursorInjected = false;
+  try {
+    if (!document.getElementById('bc-hide-cursor')) {
+      var st = document.createElement('style');
+      st.id = 'bc-hide-cursor';
+      st.textContent = '*, *::before, *::after, html, body, video, #movie_player { cursor: none !important; }';
+      (document.head || document.documentElement).appendChild(st);
+      cursorInjected = true;
+    }
+  } catch (e) {}
   var v = document.querySelector('video');
   var txt = document.body ? (document.body.innerText || '') : '';
   var vid = null;
@@ -76,6 +86,7 @@ PROBE_JS = """JSON.stringify((function(){
     searchVid: searchVid,
     title: title,
     onHomeHash: onHomeHash,
+    cursorInjected: cursorInjected,
     txt: txt.replace(/\\s+/g, ' ').slice(0, 300),
     has: !!v,
     vw: vw,
@@ -403,6 +414,11 @@ class YouTubeAutopilot(threading.Thread):
             return
         self._run_queued_controls(c)
         s = json.loads(c.evaluate(PROBE_JS))
+        if s.get("cursorInjected"):
+            try:
+                c.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1, "y": 1})
+            except Exception:
+                pass
         now = time.time()
         on_home_hash = bool(s.get("onHomeHash"))
         search_vid = s.get("searchVid")

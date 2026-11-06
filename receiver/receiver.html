@@ -266,7 +266,6 @@
       z-index: 20;
     }
 
-    #player-container:hover #controls-bar,
     .controls-active #controls-bar {
       opacity: 1;
       transform: translateX(-50%) translateY(0);
@@ -307,7 +306,7 @@
     }
   </style>
 </head>
-<body>
+<body class="hide-cursor">
 
   <!-- Idle Ambient Chromecast Backdrop -->
   <div id="ambient-screen">
@@ -487,6 +486,8 @@
 
       showOsd(`Now Playing: ${title}`, sub);
       ambientScreen.classList.add('hidden-screen');
+      document.body.classList.add('hide-cursor');
+      document.body.classList.remove('controls-active');
 
       if (hls) {
         hls.destroy();
@@ -568,16 +569,18 @@
       }
     });
 
-    // Auto-hide cursor when watching video
+    // Auto-hide cursor & controls on the TV screen after 2s of inactivity
     let mouseHideTimer = null;
     window.addEventListener('mousemove', () => {
       document.body.classList.remove('hide-cursor');
-      clearTimeout(mouseHideTimer);
       if (currentStream) {
-        mouseHideTimer = setTimeout(() => {
-          document.body.classList.add('hide-cursor');
-        }, 2000);
+        document.body.classList.add('controls-active');
       }
+      clearTimeout(mouseHideTimer);
+      mouseHideTimer = setTimeout(() => {
+        document.body.classList.add('hide-cursor');
+        document.body.classList.remove('controls-active');
+      }, 2000);
     });
 
     // Server-Sent Events listener for real-time control
