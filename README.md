@@ -1,18 +1,24 @@
-# 🦁 BraveCast
+# 🦁 BraveCast — Ad-Free YouTube Cast Receiver & DIY Chromecast Alternative
 
-> Turn an old Mac, Windows PC, Linux box or Raspberry Pi into a high-performance, ad-free media receiver powered by **Brave Browser**, with native YouTube casting, Spotify Connect, and 1-click web streaming.
+[![Release](https://img.shields.io/github/v/release/haa-gg/BraveCast?style=flat-square&color=f97316)](https://github.com/haa-gg/BraveCast/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Raspberry%20Pi-38bdf8?style=flat-square)](#🚀-quickstart-guide)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4ade80?style=flat-square)](LICENSE)
+
+> **Cast YouTube to a Mac, Windows PC, Linux box, or Raspberry Pi with zero ads.** Turn any old laptop, Mac mini, mini PC, or Raspberry Pi into a high-performance, ad-blocking Smart TV media receiver powered by **Brave Browser**, featuring native YouTube DIAL casting, **BraveCast Jam** collaborative party queues, Spotify Connect, and 1-click web video streaming.
 
 ---
 
-## 📺 Overview
+## 📺 Why BraveCast? (Overview)
 
-Commercial streaming sticks like Google Chromecast or Apple TV are locked-down and cannot block ads. **BraveCast** transforms any repurposed Mac, Windows PC, Linux machine or Raspberry Pi (such as an older laptop or mini PC plugged into a TV via HDMI) into a dedicated TV media hub that supports:
+Commercial streaming sticks like Google Chromecast, Roku, Fire TV, or Apple TV are locked down and force unskippable ads. **BraveCast** is an open-source, zero-dependency **DIY Chromecast and Smart TV receiver** that turns any computer plugged into a TV via HDMI into an ad-free living room media center:
 
-1. **Native YouTube Casting (DIAL Protocol):** Tap the Cast button inside the official YouTube mobile app on iOS or Android, select **`Living Room TV (Mac)`**, and it launches directly into the official 10-foot YouTube TV interface in Brave—with **zero pre-roll or mid-roll ads** via Brave Shields.
-2. **Native Spotify Connect:** Runs a headless `librespot` daemon in the background with CoreAudio integration. It advertises on your local Wi-Fi as a high-fidelity Spotify speaker.
-3. **1-Click Web Stream Caster Extension:** A Manifest V3 Chrome/Brave extension that sniffs `.m3u8` and `.mp4` video streams from video websites and beams them directly to the TV in fullscreen.
-4. **Mobile Web Remote Dashboard:** A responsive, glassmorphic web remote accessible from any phone or browser over your local network or Tailscale (`http://<ip>:8099/`).
-5. **Automatic TV Wake & HDMI Signal Sync:** Wakes the display output on playback commands (`caffeinate` on macOS, `SetThreadExecutionState` on Windows, DPMS / `wlr-randr` on Linux) — and on a **Raspberry Pi it uses real HDMI-CEC** to power the TV on and switch its input, firing HDMI clock sync to auto-wake connected Smart TVs (e.g. Vizio, Samsung, LG).
+1. **Native YouTube Casting Without Ads (DIAL Protocol):** Tap the regular **Cast** button inside the official YouTube app on iPhone (iOS) or Android, select your TV, and it launches directly into the 10-foot **YouTube Leanback (`youtube.com/tv`)** interface inside Brave Kiosk mode — blocking **100% of pre-roll and mid-roll ads** via Brave Shields.
+2. **🎉 BraveCast Jam (Spotify-Style Party Queue for Video):** Multiple friends on the same Wi-Fi can scan a QR code or open the Web Remote (`http://<ip>:8099/`), search YouTube directly, and add videos to a shared **Fair-Share Round-Robin & Upvote Queue** without hijacking what's currently playing on the TV.
+3. **♾️ Continuous Auto-Hop Autopilot (Headless CDP):** Uses Chrome DevTools Protocol (`127.0.0.1:9222`) + YouTube's InnerTube API to automatically advance through your Jam Queue or hop to related YouTube videos when playback ends — never getting stuck on the YouTube TV home screen.
+4. **Native Spotify Connect Speaker:** Integrates with `librespot` in the background to advertise your TV as a high-fidelity Spotify Connect audio receiver.
+5. **1-Click Web Stream Caster Extension:** Includes a Manifest V3 Chrome/Brave extension that sniffs `.m3u8` (HLS) and `.mp4` video streams from any movie/sports website and beams them straight to your TV or Jam Queue.
+6. **Automatic TV Wake & HDMI-CEC Sync:** Automatically wakes the display on cast commands (`caffeinate` on macOS, `SetThreadExecutionState` on Windows, DPMS / `wlr-randr` on Linux) — and on a **Raspberry Pi uses hardware HDMI-CEC** (`cec-client`) to power the TV on and switch HDMI inputs automatically.
+7. **🩺 Self-Healing Runtime (`doctor.py`):** Automatically rotates Smart TV User-Agents, computes rolling YouTube InnerTube client versions, cleans stale Chromium profile locks, and runs continuous health diagnostics.
 
 ---
 
