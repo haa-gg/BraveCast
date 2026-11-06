@@ -253,3 +253,4 @@ if __name__ == "__main__":
         res = check_for_update()
         print(json.dumps(res, indent=2))
         sys.exit(0 if res.get("ok") else 1)
+

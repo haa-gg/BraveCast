@@ -18,7 +18,8 @@ import platform
 import subprocess
 import platform_support as ps
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, urljoin, quote
+import urllib.request
 try:
     from autoplay import YouTubeAutopilot, yt_oembed, yt_search
     import doctor
@@ -284,6 +285,34 @@ state_mgr = ReceiverState()
 YT_URL_RE = re.compile(
     r"(?:youtube\.com/(?:watch\?.*?\bv=|tv\?.*?\bv=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})"
 )
+DIRECT_MEDIA_RE = re.compile(
+    r"\.(m3u8|mp4|webm|mkv|mpd|m4v|mov)(\?|$)|/(hls|m3u8|manifest\.mpd|master\.txt|playlist\.txt|index\.txt)\b",
+    re.I,
+)
+M3U8_URI_ATTR_RE = re.compile(r'URI="([^"]+)"')
+
+
+def rewrite_m3u8_manifest(manifest_text, base_url, referer=""):
+    """Rewrite relative and absolute URLs inside an HLS .m3u8 playlist to route through /api/proxy."""
+    ref_param = f"&referer={quote(referer, safe='')}" if referer else ""
+
+    def _wrap(target_url):
+        resolved = urljoin(base_url, target_url.strip())
+        return f"/api/proxy?url={quote(resolved, safe='')}{ref_param}"
+
+    out_lines = []
+    for raw_line in manifest_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            out_lines.append(raw_line)
+            continue
+        if line.startswith("#"):
+            if 'URI="' in line:
+                line = M3U8_URI_ATTR_RE.sub(lambda m: f'URI="{_wrap(m.group(1))}"', line)
+            out_lines.append(line)
+        else:
+            out_lines.append(_wrap(line))
+    return "\n".join(out_lines)
 
 
 def wake_tv_and_screen():
@@ -367,22 +396,50 @@ def build_stream_item(data):
             "timestamp": int(time.time()),
         }
 
-    title = (data.get("title") or "").strip() or url.split("/")[-1].split("?")[0] or "Video Stream"
+    referer = (data.get("referer") or data.get("pageUrl") or "").strip()
+    stream_type = (data.get("streamType") or "").strip()
+    explicit_source = (data.get("source") or "").strip().lower()
+
+    is_direct_stream = (
+        explicit_source == "stream"
+        or bool(stream_type)
+        or bool(DIRECT_MEDIA_RE.search(url))
+    )
+    source = "stream" if (is_direct_stream and explicit_source != "webpage") else "webpage"
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        parsed_u = urlparse(url)
+        host_label = (parsed_u.netloc or "").replace("www.", "")
+        tail = parsed_u.path.rstrip("/").split("/")[-1] if parsed_u.path else ""
+        if source == "webpage" and host_label:
+            title = f"{host_label} • {tail}" if tail else host_label
+        else:
+            title = tail or "Video Stream"
+
+    proxy_url = ""
+    if source == "stream" and url:
+        ref_q = f"&referer={quote(referer, safe='')}" if referer else ""
+        proxy_url = f"/api/proxy?url={quote(url, safe='')}{ref_q}"
+
     return {
         "url": url,
+        "proxyUrl": proxy_url,
+        "referer": referer,
+        "streamType": stream_type,
         "videoId": None,
         "title": title,
         "channel": (data.get("channel") or "").strip(),
         "thumbnail": (data.get("thumbnail") or "").strip(),
         "pageUrl": data.get("pageUrl", ""),
-        "source": "stream",
+        "source": source,
         "addedBy": added_by,
         "timestamp": int(time.time()),
     }
 
 
 def play_stream_item(stream_info):
-    """Play a YouTube or HLS/MP4 item immediately without killing Brave if YouTube TV is already open."""
+    """Play a YouTube, Web Cinema page (e.g. ramoflix.com), or HLS/MP4 stream immediately."""
     state_mgr.record_user_played(stream_info.get("addedBy"))
     state_mgr.add_history(stream_info)
 
@@ -403,6 +460,15 @@ def play_stream_item(stream_info):
         else:
             autopilot.notify_video(vid)
             launch_brave_kiosk(yt_url, is_youtube=True)
+    elif stream_info.get("source") == "webpage":
+        # Open the streaming site directly in Brave Kiosk (Shields block ads; CDP maximizes the video iframe)
+        state_mgr.update_status({
+            "state": "playing",
+            "youtubeRunning": False,
+            "stream": stream_info,
+            "currentTime": 0,
+        })
+        launch_brave_kiosk(stream_info["url"], is_youtube=False)
     else:
         state_mgr.update_status({
             "state": "playing",
@@ -410,7 +476,11 @@ def play_stream_item(stream_info):
             "stream": stream_info,
             "currentTime": 0,
         })
-        has_active_receiver = len(state_mgr.sse_queues) > 0 and not autopilot.page_alive()
+        has_active_receiver = (
+            len(state_mgr.sse_queues) > 0
+            and not autopilot.page_alive()
+            and not autopilot.web_cinema_alive()
+        )
         if not has_active_receiver:
             launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
         else:
@@ -422,7 +492,7 @@ def play_stream_item(stream_info):
 
 
 def is_anything_playing():
-    if autopilot.is_actively_playing():
+    if autopilot.is_actively_playing() or autopilot.web_cinema_alive():
         return True
     st = state_mgr.get_status()
     if (
@@ -666,6 +736,77 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             self.send_json(doctor.run_all_checks(include_headless_cdp=run_cdp))
             return
 
+        if path == "/api/proxy":
+            params = parse_qs(parsed.query)
+            target_url = (params.get("url") or [""])[0].strip()
+            referer = (params.get("referer") or [""])[0].strip()
+            if not target_url.startswith(("http://", "https://")):
+                self.send_json({"error": "Invalid proxy target URL"}, 400)
+                return
+
+            parsed_target = urlparse(target_url)
+            parsed_ref = urlparse(referer) if referer else parsed_target
+            origin = f"{parsed_ref.scheme}://{parsed_ref.netloc}" if parsed_ref.netloc else ""
+            req_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                ),
+                "Accept": "*/*",
+            }
+            if referer:
+                req_headers["Referer"] = referer
+            elif origin:
+                req_headers["Referer"] = origin + "/"
+            if origin:
+                req_headers["Origin"] = origin
+            if "Range" in self.headers:
+                req_headers["Range"] = self.headers["Range"]
+
+            try:
+                req = urllib.request.Request(target_url, headers=req_headers)
+                with urllib.request.urlopen(req, timeout=15) as up:
+                    status_code = getattr(up, "status", 200)
+                    final_url = up.geturl() or target_url
+                    ct = (up.headers.get("Content-Type") or "application/octet-stream").lower()
+                    is_m3u8_hint = (
+                        "mpegurl" in ct
+                        or ".m3u8" in final_url.lower()
+                        or final_url.lower().endswith(("/master.txt", "/playlist.txt", "/index.txt"))
+                    )
+                    first_chunk = up.read(65536)
+                    if is_m3u8_hint or first_chunk.lstrip().startswith(b"#EXTM3U"):
+                        raw_bytes = first_chunk + up.read()
+                        text = raw_bytes.decode("utf-8", errors="replace")
+                        rewritten = rewrite_m3u8_manifest(text, final_url, referer=referer).encode("utf-8")
+                        self.send_response(200)
+                        self.send_cors_headers()
+                        self.send_header("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+                        self.send_header("Content-Length", str(len(rewritten)))
+                        self.end_headers()
+                        self.wfile.write(rewritten)
+                        return
+
+                    self.send_response(status_code)
+                    self.send_cors_headers()
+                    self.send_header("Content-Type", up.headers.get("Content-Type") or "application/octet-stream")
+                    for h_name in ("Content-Length", "Content-Range", "Accept-Ranges"):
+                        if up.headers.get(h_name):
+                            self.send_header(h_name, up.headers.get(h_name))
+                    self.end_headers()
+                    if first_chunk:
+                        self.wfile.write(first_chunk)
+                    while True:
+                        buf = up.read(65536)
+                        if not buf:
+                            break
+                        self.wfile.write(buf)
+            except (ConnectionResetError, BrokenPipeError):
+                pass
+            except Exception as e:
+                self.send_json({"error": f"Proxy fetch failed: {e}"}, 502)
+            return
+
         if path == "/api/youtube/search":
             params = parse_qs(parsed.query)
             q = (params.get("q") or [""])[0].strip()
@@ -885,6 +1026,11 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 autopilot.enabled = not autopilot.enabled
                 self.send_json({"success": True, "action": action, "autoplay": autopilot.status()})
                 return
+
+            if action == "stop":
+                if autopilot.page_alive() or autopilot.web_cinema_alive():
+                    launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
+                state_mgr.update_status({"state": "idle", "youtubeRunning": False, "stream": None})
 
             if action in ("toggle", "play", "pause", "seek", "mute", "volume"):
                 autopilot.control(action, value)

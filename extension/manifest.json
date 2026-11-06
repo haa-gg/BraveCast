@@ -5,6 +5,7 @@
   "description": "One-click beam ad-free streams to Glen's MacBook (2) over Tailscale.",
   "permissions": [
     "activeTab",
+    "tabs",
     "scripting",
     "webRequest",
     "storage"

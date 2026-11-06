@@ -97,6 +97,99 @@ PROBE_JS = """JSON.stringify((function(){
   };
 })())"""
 
+WEB_CINEMA_JS = """JSON.stringify((function(){
+  var cursorInjected = false;
+  try {
+    if (!document.getElementById('bc-hide-cursor')) {
+      var st = document.createElement('style');
+      st.id = 'bc-hide-cursor';
+      st.textContent = '*, *::before, *::after, html, body, video, iframe { cursor: none !important; }';
+      (document.head || document.documentElement).appendChild(st);
+      cursorInjected = true;
+    }
+  } catch (e) {}
+
+  var v = document.querySelector('video');
+  if (!v) {
+    try {
+      var frames = document.querySelectorAll('iframe');
+      for (var i = 0; i < frames.length; i++) {
+        try {
+          var fv = frames[i].contentDocument && frames[i].contentDocument.querySelector('video');
+          if (fv) { v = fv; break; }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  var maximizedIframe = false;
+  try {
+    var iframes = Array.from(document.querySelectorAll('iframe')).filter(function(f) {
+      var r = f.getBoundingClientRect();
+      var src = (f.src || '').toLowerCase();
+      if (src.indexOf('doubleclick') !== -1 || src.indexOf('googlesyndication') !== -1 || src.indexOf('ad') === 0) return false;
+      return (r.width >= 260 && r.height >= 150) || f.allowFullscreen ||
+             /embed|player|vid|stream|movie|tv|watch|cloud|flix/i.test(src);
+    });
+    if (!v && iframes.length > 0) {
+      iframes.sort(function(a, b) {
+        var ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+        return (rb.width * rb.height) - (ra.width * ra.height);
+      });
+      var mainIframe = iframes[0];
+      maximizedIframe = true;
+      if (!mainIframe.dataset.bcMax) {
+        mainIframe.dataset.bcMax = '1';
+        mainIframe.style.setProperty('position', 'fixed', 'important');
+        mainIframe.style.setProperty('top', '0', 'important');
+        mainIframe.style.setProperty('left', '0', 'important');
+        mainIframe.style.setProperty('width', '100vw', 'important');
+        mainIframe.style.setProperty('height', '100vh', 'important');
+        mainIframe.style.setProperty('z-index', '2147483647', 'important');
+        mainIframe.style.setProperty('background', '#000', 'important');
+        mainIframe.style.setProperty('border', 'none', 'important');
+        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+        if (document.body) document.body.style.setProperty('overflow', 'hidden', 'important');
+      }
+    } else if (v && !v.dataset.bcMax && window === window.top) {
+      var vr = v.getBoundingClientRect();
+      if (vr.width > 200 && vr.width < window.innerWidth * 0.92) {
+        v.dataset.bcMax = '1';
+        v.style.setProperty('position', 'fixed', 'important');
+        v.style.setProperty('top', '0', 'important');
+        v.style.setProperty('left', '0', 'important');
+        v.style.setProperty('width', '100vw', 'important');
+        v.style.setProperty('height', '100vh', 'important');
+        v.style.setProperty('z-index', '2147483647', 'important');
+        v.style.setProperty('background', '#000', 'important');
+        v.style.setProperty('object-fit', 'contain', 'important');
+      }
+    }
+  } catch (e) {}
+
+  if (!v || (v.paused && (v.currentTime || 0) < 0.5)) {
+    try {
+      var playBtn = document.querySelector('.vjs-big-play-button, .jw-icon-display, .plyr__control--overlaid, button[aria-label*="Play" i], .play-button');
+      if (playBtn && !playBtn.dataset.bcClicked) {
+        playBtn.dataset.bcClicked = '1';
+        playBtn.click();
+      }
+    } catch (e) {}
+  }
+
+  return {
+    u: location.href,
+    title: document.title || '',
+    cursorInjected: cursorInjected,
+    has: !!v,
+    hasIframe: maximizedIframe,
+    t: v ? v.currentTime : 0,
+    d: (v && isFinite(v.duration)) ? v.duration : 0,
+    e: v ? v.ended : false,
+    p: v ? v.paused : true
+  };
+})())"""
+
 
 def video_id_of(url):
     m = VIDEO_ID_RE.search(url or "")
@@ -359,17 +452,39 @@ class YouTubeAutopilot(threading.Thread):
     def _is_youtube_target(t):
         return t.get("type") == "page" and "youtube.com/tv" in t.get("url", "")
 
+    @staticmethod
+    def _is_web_cinema_target(t):
+        if t.get("type") != "page":
+            return False
+        u = t.get("url", "")
+        if not u.startswith(("http://", "https://")):
+            return False
+        if "youtube.com/tv" in u or "localhost:" in u or "127.0.0.1:" in u:
+            return False
+        return True
+
+    def web_cinema_alive(self):
+        """True if a generic Web Cinema page (e.g. Ramoflix, Twitch, Vimeo) is open in the kiosk."""
+        try:
+            return any(self._is_web_cinema_target(t) for t in list_targets(self.port))
+        except Exception:
+            return False
+
     def _drop(self):
         if self._cdp:
             self._cdp.close()
         self._cdp, self._target_id = None, None
 
     def _connect(self):
-        targets = [t for t in list_targets(self.port) if self._is_youtube_target(t)]
+        all_targets = list_targets(self.port)
+        targets = [t for t in all_targets if self._is_youtube_target(t)]
+        if not targets:
+            targets = [t for t in all_targets if self._is_web_cinema_target(t)]
         if not targets:
             self._drop()
             return None
         target = targets[0]
+        self._target_is_youtube = self._is_youtube_target(target)
         if self._cdp and self._target_id == target["id"]:
             return self._cdp
         self._drop()
@@ -408,9 +523,110 @@ class YouTubeAutopilot(threading.Thread):
             except Exception as e:
                 print(f"[autoplay] control '{action}' failed: {e}")
 
+    def _find_iframe_video_cdp(self):
+        """If the main Web Cinema page puts its <video> inside a cross-origin iframe, find that iframe target."""
+        try:
+            for t in list_targets(self.port):
+                if t.get("type") == "iframe" and t.get("webSocketDebuggerUrl"):
+                    u = (t.get("url") or "").lower()
+                    if any(x in u for x in ("doubleclick", "googlesyndication", "recaptcha", "analytics")):
+                        continue
+                    ic = CDPClient(t["webSocketDebuggerUrl"], timeout=3)
+                    try:
+                        raw = ic.evaluate(WEB_CINEMA_JS)
+                        if raw:
+                            st = json.loads(raw)
+                            if st.get("has"):
+                                return ic, st
+                    except Exception:
+                        pass
+                    ic.close()
+        except Exception:
+            pass
+        return None, None
+
+    def _tick_web_cinema(self, c):
+        """Manage generic web streaming sites (e.g. ramoflix.com, Twitch, Vimeo) in Brave Kiosk."""
+        raw = c.evaluate(WEB_CINEMA_JS)
+        s = json.loads(raw) if raw else {}
+        if s.get("cursorInjected"):
+            try:
+                c.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1, "y": 1})
+            except Exception:
+                pass
+
+        video_cdp = c
+        if not s.get("has"):
+            ic, iframe_state = self._find_iframe_video_cdp()
+            if ic and iframe_state:
+                video_cdp = ic
+                s_video = iframe_state
+            else:
+                s_video = s
+        else:
+            s_video = s
+
+        try:
+            if self._cmd_queue:
+                if s_video.get("has"):
+                    self._run_queued_controls(video_cdp)
+                else:
+                    # Fallback keyboard media controls for opaque iframe players
+                    while self._cmd_queue:
+                        action, value = self._cmd_queue.popleft()
+                        if action in ("toggle", "play", "pause"):
+                            self._press(c, " ", 32)
+                        elif action == "seek" and value == "back":
+                            self._press(c, "ArrowLeft", 37)
+                        elif action == "seek" and value == "fwd":
+                            self._press(c, "ArrowRight", 39)
+                        elif action == "mute":
+                            self._press(c, "m", 77)
+
+            now = time.time()
+            has_video = bool(s_video.get("has"))
+            d = float(s_video.get("d") or 0.0)
+            t = float(s_video.get("t") or 0.0)
+            paused = bool(s_video.get("p"))
+            ended = bool(s_video.get("e"))
+
+            if has_video and t < 1.0 and paused and (now - self._last_unpause > 3.0):
+                self._last_unpause = now
+                video_cdp.evaluate("(function(){ var v = document.querySelector('video'); if (v && v.paused) { v.muted = false; v.play().catch(function(){}); } })()")
+
+            if has_video and d > 0:
+                if t >= 0.5:
+                    self._played_current = True
+                    self._last_watch = now
+                if self.on_player_state:
+                    raw_title = (s.get("title") or s_video.get("title") or "Web Stream").strip()
+                    self.on_player_state({
+                        "state": "paused" if paused else "playing",
+                        "currentTime": t,
+                        "duration": d,
+                        "youtubeRunning": False,
+                        "stream": {
+                            "url": s.get("u") or "",
+                            "title": raw_title,
+                            "source": "webpage",
+                        },
+                    })
+
+            # If a Web Cinema video finishes and items are waiting in the Jam Queue, advance!
+            if (ended or (has_video and d > 30 and (d - t) <= 2.0 and paused)) and self.has_jam_items() and self.pop_jam_next:
+                jam_item = self.pop_jam_next()
+                if jam_item and not jam_item.get("handled_externally") and jam_item.get("videoId"):
+                    c.call("Page.navigate", {"url": f"https://www.youtube.com/tv?v={jam_item['videoId']}"})
+        finally:
+            if video_cdp is not c:
+                video_cdp.close()
+
     def _tick(self):
         c = self._connect()
         if not c:
+            return
+        if not getattr(self, "_target_is_youtube", True):
+            self._tick_web_cinema(c)
             return
         self._run_queued_controls(c)
         s = json.loads(c.evaluate(PROBE_JS))

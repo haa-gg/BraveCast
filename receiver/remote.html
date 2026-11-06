@@ -864,8 +864,9 @@
 
     function isLikelyUrl(input) {
       const s = input.trim();
+      if (!s || /\s/.test(s)) return false;
       if (/^https?:\/\//i.test(s)) return true;
-      if (/^(www\.)?(youtube\.com|youtu\.be)\//i.test(s)) return true;
+      if (/^(www\.)?[a-z0-9-]+\.[a-z]{2,}(\/|$)/i.test(s)) return true;
       if (/\.(m3u8|mp4|webm|mkv)(\?|$)/i.test(s)) return true;
       return false;
     }

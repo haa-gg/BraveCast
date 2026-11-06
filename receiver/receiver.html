@@ -477,10 +477,14 @@
         .catch(() => stopPlayback());
     }
 
-    // Load stream
-    function loadStream(stream) {
+    // Load stream (supports direct HLS/MP4 and /api/proxy for Referer/CORS-protected sites like Ramoflix/VidSrc)
+    function loadStream(stream, forceProxy = false) {
       currentStream = stream;
-      const url = stream.url;
+      const rawUrl = stream.url || '';
+      const useProxy = forceProxy || Boolean(stream.referer);
+      const url = useProxy
+        ? (stream.proxyUrl || (`/api/proxy?url=${encodeURIComponent(rawUrl)}` + (stream.referer ? `&referer=${encodeURIComponent(stream.referer)}` : '')))
+        : rawUrl;
       const title = stream.title || "Video Stream";
       const sub = stream.addedBy ? `Queued by ${stream.addedBy} • BraveCast Jam` : "StreamCaster Receiver";
 
@@ -494,7 +498,18 @@
         hls = null;
       }
 
-      if (url.includes('.m3u8')) {
+      const lowerRaw = rawUrl.toLowerCase();
+      const isHls = (
+        stream.streamType === 'HLS' ||
+        lowerRaw.includes('.m3u8') ||
+        lowerRaw.includes('/hls/') ||
+        lowerRaw.includes('/m3u8/') ||
+        lowerRaw.endsWith('/master.txt') ||
+        lowerRaw.endsWith('/playlist.txt') ||
+        lowerRaw.endsWith('/index.txt')
+      );
+
+      if (isHls) {
         if (Hls.isSupported()) {
           hls = new Hls({ enableWorker: true, lowLatencyMode: true });
           hls.loadSource(url);
@@ -505,7 +520,10 @@
           hls.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal) {
               console.error("HLS fatal error:", data);
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !useProxy) {
+                console.log("Retrying stream through BraveCast CORS/Referer proxy...");
+                loadStream(stream, true);
+              } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                 hls.startLoad();
               } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                 hls.recoverMediaError();
@@ -520,6 +538,12 @@
         }
       } else {
         video.src = url;
+        video.onerror = () => {
+          if (!useProxy) {
+            video.onerror = null;
+            loadStream(stream, true);
+          }
+        };
         video.play().catch(() => {});
       }
     }

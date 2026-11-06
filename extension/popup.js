@@ -135,16 +135,23 @@ mBtnFwd.addEventListener('click', () => sendControl('seek', 'fwd'));
 mBtnStop.addEventListener('click', () => sendControl('stop'));
 
 // Cast action
-function castUrl(url, title, btnElement, mode = 'auto', defaultLabel = "🚀 Cast Now") {
+function castUrl(url, title, btnElement, mode = 'auto', defaultLabel = "🚀 Cast Now", extra = {}) {
   if (btnElement) {
     btnElement.textContent = "⏳ Sending...";
     btnElement.disabled = true;
   }
 
+  const payload = Object.assign({
+    url: url,
+    title: title,
+    mode: mode,
+    addedBy: "Extension"
+  }, extra);
+
   fetch(`${targetHost}/api/cast`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: url, title: title, mode: mode, addedBy: "Extension" })
+    body: JSON.stringify(payload)
   })
   .then(r => r.json())
   .then(res => {
@@ -158,7 +165,7 @@ function castUrl(url, title, btnElement, mode = 'auto', defaultLabel = "🚀 Cas
     setTimeout(pollPlaybackStatus, 800);
   })
   .catch(err => {
-    alert("Cast failed. Make sure Glen's MacBook is awake and BraveCast daemon is running:\n" + err);
+    alert("Cast failed. Make sure your BraveCast receiver is awake and running:\n" + err);
     if (btnElement) {
       btnElement.textContent = "❌ Failed";
       btnElement.disabled = false;
@@ -213,13 +220,21 @@ function renderStreams() {
       // Wire Jam button
       const beamBtn = card.querySelector('.btn-beam');
       beamBtn.addEventListener('click', () => {
-        castUrl(stream.url, stream.title, beamBtn, 'queue', '➕ Jam Queue');
+        castUrl(stream.url, stream.title, beamBtn, 'queue', '➕ Jam Queue', {
+          referer: stream.referer || '',
+          pageUrl: stream.pageUrl || '',
+          streamType: stream.streamType || ''
+        });
       });
 
       // Wire Play Now button
       const nowBtn = card.querySelector('.btn-now');
       nowBtn.addEventListener('click', () => {
-        castUrl(stream.url, stream.title, nowBtn, 'now', '🚀 Now');
+        castUrl(stream.url, stream.title, nowBtn, 'now', '🚀 Now', {
+          referer: stream.referer || '',
+          pageUrl: stream.pageUrl || '',
+          streamType: stream.streamType || ''
+        });
       });
 
       // Wire local player button
@@ -237,11 +252,14 @@ function renderStreams() {
 
 renderStreams();
 
-// Cast current web page tab directly
+// Cast current web page tab directly (opens in Brave Kiosk with Cinema Auto-Maximize)
 castTabBtn.addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab && tab.url) {
-    castUrl(tab.url, tab.title || "Web Page", castTabBtn);
+    castUrl(tab.url, tab.title || "Web Page", castTabBtn, 'now', '🌐 Cast Current Web Page to TV', {
+      source: 'webpage',
+      pageUrl: tab.url
+    });
   }
 });
 
