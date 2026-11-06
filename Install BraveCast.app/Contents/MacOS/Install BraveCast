@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Native macOS App bundle entry point for graphical BraveCast setup
+REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
+exec /bin/bash "$REPO/macos/install.sh" --gui

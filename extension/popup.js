@@ -50,7 +50,7 @@ saveHostBtn.addEventListener('click', () => {
 
 refreshDeviceBtn.addEventListener('click', checkDeviceStatus);
 
-// Check device status
+// Check device status (auto-falls back to localhost:8099 for out-of-the-box local installs)
 function checkDeviceStatus() {
   deviceDot.className = "dot";
   deviceStatusText.textContent = "Checking connection...";
@@ -63,10 +63,29 @@ function checkDeviceStatus() {
     .then(data => {
       clearTimeout(timeoutId);
       deviceDot.className = "dot online";
-      deviceStatusText.textContent = "Online • Tailscale Ready";
+      deviceStatusText.textContent = "Online • BraveCast Ready";
       pollPlaybackStatus();
     })
     .catch(() => {
+      clearTimeout(timeoutId);
+      if (targetHost !== "http://localhost:8099") {
+        fetch("http://localhost:8099/api/ping")
+          .then(r => r.json())
+          .then(() => {
+            targetHost = "http://localhost:8099";
+            targetHostInput.value = targetHost;
+            chrome.storage.local.set({ targetHost: targetHost });
+            deviceDot.className = "dot online";
+            deviceStatusText.textContent = "Online • Local Receiver";
+            pollPlaybackStatus();
+          })
+          .catch(() => {
+            deviceDot.className = "dot offline";
+            deviceStatusText.textContent = "Unreachable / Asleep";
+            miniRemote.style.display = "none";
+          });
+        return;
+      }
       deviceDot.className = "dot offline";
       deviceStatusText.textContent = "Unreachable / Asleep";
       miniRemote.style.display = "none";

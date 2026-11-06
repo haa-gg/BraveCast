@@ -25,3 +25,4 @@ jobs:
           BRAVECAST_BROWSER: google-chrome-stable
         run: |
           python3 receiver/doctor.py
+

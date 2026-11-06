@@ -53,21 +53,30 @@ Commercial streaming sticks like Google Chromecast or Apple TV are locked-down a
 
 ```text
 BraveCast/
-├── receiver/                     # Runs on the TV-connected Mac
-│   ├── server.py                 # Multi-threaded HTTP & SSDP DIAL Daemon
+├── Install BraveCast.app          # Double-click macOS GUI Installer (zero Terminal!)
+├── Install BraveCast (Mac).command # Double-click macOS Finder Installer
+├── Install BraveCast (Windows).bat # Double-click Windows GUI Installer
+├── install.sh                    # Universal 1-command installer (macOS / Linux / Pi)
+├── receiver/                     # Runs on the TV-connected machine
+│   ├── server.py                 # Multi-threaded HTTP, SSDP DIAL & Jam Queue Daemon
+│   ├── autoplay.py               # Headless CDP YouTube TV autopilot & InnerTube client
+│   ├── doctor.py                 # Self-healing runtime diagnostics & health check
 │   ├── platform_support.py       # macOS / Windows / Linux specifics (wake, CEC, keep-awake, kiosk control)
 │   ├── receiver.html             # Ambient standby screen + HLS/MP4 video player
-│   ├── remote.html               # Mobile and desktop Web Remote dashboard
+│   ├── remote.html               # Mobile and desktop Web Remote + BraveCast Jam dashboard
 │   ├── hls.min.js                # Bundled HLS player library
-│   ├── com.glen.bravecast.plist  # macOS LaunchAgent configuration
-│   ├── com.glen.librespot.plist  # Spotify Connect LaunchAgent
+│   ├── com.glen.bravecast.plist  # macOS LaunchAgent template
+│   ├── com.glen.librespot.plist  # Spotify Connect LaunchAgent template
 │   ├── on_spotify_event.sh       # Spotify playback event hook (macOS / Linux)
 │   └── on_spotify_event.ps1      # Spotify playback event hook (Windows)
+├── macos/
+│   ├── install.sh                # Automated macOS installer (supports --gui and CLI)
+│   └── uninstall.sh              # One-shot macOS uninstaller
 ├── linux/
 │   ├── install.sh                # One-shot Linux / Raspberry Pi setup (systemd user service)
 │   └── uninstall.sh
 ├── windows/
-│   ├── install.ps1               # One-shot Windows setup (firewall + startup task)
+│   ├── install.ps1               # One-shot Windows setup (supports -Gui, winget, firewall + startup task)
 │   └── uninstall.ps1
 ├── extension/                    # StreamCaster 2.0 Browser Extension
 │   ├── manifest.json             # Manifest V3 configuration
@@ -84,35 +93,41 @@ BraveCast/
 
 ## 🚀 Quickstart Guide
 
-### 1. Set Up the Receiver (macOS)
+### ✨ Option A: Easy Double-Click Install (No Command Line Needed!)
 
-1. **Clone the repository:**
+Don't want to touch a terminal? Just [Download the ZIP](https://github.com/haa-gg/BraveCast/archive/refs/heads/main.zip), unzip it, and double-click:
+
+* **🍎 On a Mac:** Double-click **`Install BraveCast.app`** (or **`Install BraveCast (Mac).command`**).
+  * *(First time tip: If macOS says the app is from an unidentified developer, **Right-Click → Open** and click **Open**).*
+  * A friendly popup asks what you want to name your TV, automatically downloads & installs **Brave Browser** if you don't have it yet, installs BraveCast into `~/Library/Application Support/BraveCast`, sets it to start automatically at login, and opens your Web Remote!
+* **🪟 On Windows 10 / 11:** Double-click **`Install BraveCast (Windows).bat`**.
+  * Click **Yes** on the Administrator prompt, pick a name for your TV in the popup box, and the wizard automatically installs **Python 3** and **Brave Browser** (via `winget` if missing), sets your Wi-Fi to Private so phones can discover your PC, opens the firewall, and launches your Web Remote!
+
+---
+
+### ⚡ Option B: Universal 1-Line Terminal Install (macOS / Linux / Raspberry Pi)
+
+```bash
+git clone https://github.com/haa-gg/BraveCast.git && cd BraveCast && bash install.sh
+```
+
+---
+
+### 1a. Manual / CLI Setup (macOS)
+
+1. **Automated CLI install:**
    ```bash
-   git clone https://github.com/haa-gg/BraveCast.git
-   cd BraveCast
+   bash macos/install.sh --name "Living Room TV" --install-brave
    ```
+   *(Remove anytime with `bash macos/uninstall.sh`)*
 
-2. **Run the receiver daemon manually (to test):**
+2. **Or run the receiver daemon manually (to test):**
    ```bash
    python3 receiver/server.py
    ```
-   * Web Remote: `http://localhost:8099/`
+   * Web Remote & Jam Queue: `http://localhost:8099/`
    * Ambient Receiver Screen: `http://localhost:8099/receiver`
-   * DIAL XML: `http://localhost:8099/dd.xml`
-
-3. **Install as a 24/7 background service (`launchd`):**
-   ```bash
-   mkdir -p ~/Library/LaunchAgents
-   cp receiver/com.glen.bravecast.plist ~/Library/LaunchAgents/
-   launchctl load -w ~/Library/LaunchAgents/com.glen.bravecast.plist
-   ```
-
-4. *(Optional)* **Enable Spotify Connect:**
-   ```bash
-   brew install librespot
-   cp receiver/com.glen.librespot.plist ~/Library/LaunchAgents/
-   launchctl load -w ~/Library/LaunchAgents/com.glen.librespot.plist
-   ```
+   * Self-Diagnostic Doctor: `python3 receiver/doctor.py`
 
 ---
 
