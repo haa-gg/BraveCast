@@ -22,9 +22,11 @@ from urllib.parse import urlparse, parse_qs, unquote
 try:
     from autoplay import YouTubeAutopilot, yt_oembed, yt_search
     import doctor
+    import updater
 except ImportError:
     from receiver.autoplay import YouTubeAutopilot, yt_oembed, yt_search
     from receiver import doctor
+    from receiver import updater
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -648,9 +650,14 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             st["history"] = state_mgr.get_history()
             st["jamQueue"] = state_mgr.get_jam_queue()
             st["autoplay"] = autopilot.status()
+            st["codeVersion"] = updater.get_local_version()
             st["localIp"] = LOCAL_IP
             st["port"] = PORT
             self.send_json(st)
+            return
+
+        if path == "/api/update":
+            self.send_json(updater.check_for_update())
             return
 
         if path == "/api/doctor":
@@ -891,6 +898,15 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             self.send_json({"success": True})
             return
 
+        if path == "/api/update":
+            data = self.read_json_body()
+            force = bool(data.get("force", True))
+            res = updater.apply_update(force=force)
+            self.send_json(res)
+            if res.get("updated"):
+                _schedule_restart(1.0)
+            return
+
         if path == "/api/receiver/status":
             data = self.read_json_body()
             if data.get("state") == "ended" and state_mgr.has_jam_items():
@@ -930,19 +946,52 @@ class BraveCastHandler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {args[0]} {args[1]}\n")
 
 
+_HTTP_SERVER = None
+
+
+def _schedule_restart(delay=1.0):
+    """Gracefully replace the running daemon process with the newly updated code."""
+    def _do_restart():
+        time.sleep(delay)
+        print("🔄 [ota] Restarting BraveCast daemon with updated code...")
+        try:
+            if _HTTP_SERVER:
+                _HTTP_SERVER.socket.close()
+        except Exception:
+            pass
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+
+
 def _maintenance_loop():
-    """Background self-maintenance: keep SMART_TV_UA and InnerTube client version fresh when idle."""
+    """
+    Background self-maintenance:
+      1. Keep SMART_TV_UA and InnerTube client version fresh when idle.
+      2. Check GitHub `main` for OTA code updates and self-apply + restart when idle.
+    """
     global SMART_TV_UA
+    time.sleep(20)  # Let startup settle before first check
     while True:
+        sleep_sec = 6 * 3600
         try:
             if not is_anything_playing():
                 SMART_TV_UA = doctor.resolve_smart_tv_ua()
+                if os.environ.get("BRAVECAST_AUTO_UPDATE") != "0":
+                    res = updater.apply_update(force=False)
+                    if res.get("updated"):
+                        _schedule_restart(1.0)
+                        return
+            else:
+                # Playback is active right now; check again in 30 minutes when TV may be idle
+                sleep_sec = 1800
         except Exception as e:
-            print(f"[maintenance] UA check warning: {e}")
-        time.sleep(6 * 3600)
+            print(f"[maintenance] check warning: {e}")
+        time.sleep(sleep_sec)
 
 
 def main():
+    global _HTTP_SERVER
     print(f"🚀 Starting BraveCast Receiver & DIAL Server on port {PORT}...")
     print(f"🏠 Local IP: {LOCAL_IP}")
     caffeinate_proc = start_caffeinate()
@@ -953,8 +1002,10 @@ def main():
     ssdp_server = DialSsdpServer(LOCAL_IP, PORT)
     ssdp_server.start()
 
+    ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((HOST, PORT), BraveCastHandler)
     server.daemon_threads = True
+    _HTTP_SERVER = server
 
     try:
         server.serve_forever()

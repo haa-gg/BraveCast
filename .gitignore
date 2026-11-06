@@ -38,3 +38,5 @@ venv/
 .vscode/
 *.swp
 *~
+receiver/.version
+*.ota.tmp

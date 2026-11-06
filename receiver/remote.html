@@ -773,6 +773,14 @@
         </div>
       </div>
     </div>
+
+    <!-- OTA Version & Self-Update Bar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 10px 14px; font-size: 11px; color: var(--text-muted);">
+      <span>BraveCast OTA • <code id="ota-version-label" style="color: #cbd5e1;">checking...</code></span>
+      <button id="ota-update-btn" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; padding: 5px 10px; border-radius: 9999px; font-size: 11px; cursor: pointer;">
+        🔄 Check for Updates
+      </button>
+    </div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -808,6 +816,8 @@
     const historyContainer = document.getElementById('history-container');
     const userPill = document.getElementById('user-pill');
     const userNameLabel = document.getElementById('user-name-label');
+    const otaVersionLabel = document.getElementById('ota-version-label');
+    const otaUpdateBtn = document.getElementById('ota-update-btn');
     const toastEl = document.getElementById('toast');
 
     let isSeeking = false;
@@ -1109,6 +1119,10 @@
             btnMute.textContent = data.muted || data.volume === 0 ? "🔇" : "🔊";
           }
 
+          if (data.codeVersion && data.codeVersion.shortSha && otaVersionLabel) {
+            otaVersionLabel.textContent = data.codeVersion.shortSha;
+          }
+
           if (data.history && data.history.length > 0) {
             historyContainer.innerHTML = data.history.map(item => `
               <div class="history-item" data-url="${escHtml(item.url)}" data-title="${escHtml(item.title)}">
@@ -1126,6 +1140,39 @@
       if (!row) return;
       submitStream({ url: row.dataset.url, title: row.dataset.title }, 'queue');
     });
+
+    if (otaUpdateBtn) {
+      otaUpdateBtn.addEventListener('click', () => {
+        otaUpdateBtn.textContent = "⏳ Checking GitHub...";
+        otaUpdateBtn.disabled = true;
+        fetch('/api/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: false })
+        })
+          .then(r => r.json())
+          .then(res => {
+            if (res.updated) {
+              showToast(`Updated to ${res.shortSha}! Restarting receiver...`);
+              otaUpdateBtn.textContent = "✅ Updated!";
+              setTimeout(() => {
+                otaUpdateBtn.textContent = "🔄 Check for Updates";
+                otaUpdateBtn.disabled = false;
+                fetchStatus();
+              }, 2500);
+            } else {
+              showToast(res.message || res.error || "Up to date");
+              otaUpdateBtn.textContent = "🔄 Check for Updates";
+              otaUpdateBtn.disabled = false;
+            }
+          })
+          .catch(() => {
+            showToast("Update check failed");
+            otaUpdateBtn.textContent = "🔄 Check for Updates";
+            otaUpdateBtn.disabled = false;
+          });
+      });
+    }
 
     // Listen to SSE for instant Jam Queue updates across all phones
     try {
