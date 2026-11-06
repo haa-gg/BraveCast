@@ -713,6 +713,16 @@
           <span id="autoplay-label">Autoplay: ON</span>
         </button>
       </div>
+
+      <!-- Mobile Browser Bookmarklet / Share Sheet Helper -->
+      <div style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; color: var(--text-muted);">📱 Using Brave / Safari on your phone?</span>
+          <button id="copy-bookmarklet-btn" style="background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">
+            📋 Copy 1-Tap Cast Bookmarklet
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Jam Queue Card -->
@@ -1182,6 +1192,49 @@
         try { renderJamQueue(JSON.parse(e.data)); } catch (_) {}
       });
     } catch (_) {}
+
+    // 1-Tap Mobile Bookmarklet generator (works in Brave Mobile on iOS & Android)
+    const copyBookmarkletBtn = document.getElementById('copy-bookmarklet-btn');
+    if (copyBookmarkletBtn) {
+      copyBookmarkletBtn.addEventListener('click', () => {
+        const origin = location.origin;
+        const bookmarklet = `javascript:(function(){var v=document.querySelector('video');var u=(v&&v.currentSrc&&v.currentSrc.indexOf('blob:')!==0)?v.currentSrc:location.href;location.href='${origin}/?autocast='+encodeURIComponent(u)+'&page='+encodeURIComponent(location.href)+'&title='+encodeURIComponent(document.title);})();`;
+        navigator.clipboard.writeText(bookmarklet).then(() => {
+          showToast("Copied! Save a bookmark in Brave Mobile & paste this as the URL.");
+          copyBookmarkletBtn.textContent = "✅ Bookmarklet Copied!";
+          setTimeout(() => {
+            copyBookmarkletBtn.textContent = "📋 Copy 1-Tap Cast Bookmarklet";
+          }, 3000);
+        }).catch(() => {
+          prompt("Copy this bookmarklet URL and save it as a bookmark named 'Cast to TV' in Brave Mobile:", bookmarklet);
+        });
+      });
+    }
+
+    // Handle incoming ?autocast=<url> from Mobile Bookmarklet, iOS Shortcut, or Android Share Sheet
+    (function handleIncomingAutocast() {
+      const params = new URLSearchParams(location.search);
+      const rawCast = params.get('autocast') || params.get('url') || params.get('text') || '';
+      if (!rawCast) return;
+      // Extract URL if Share Sheet passed "Movie Title https://..."
+      const urlMatch = rawCast.match(/https?:\/\/[^\s]+/i);
+      const targetUrl = urlMatch ? urlMatch[0] : rawCast.trim();
+      const pageUrl = params.get('page') || targetUrl;
+      const title = params.get('title') || '';
+      const mode = params.get('mode') || 'auto';
+      // Clean URL bar so refreshing the remote doesn't re-cast
+      try {
+        history.replaceState({}, document.title, location.pathname);
+      } catch (_) {}
+      if (targetUrl) {
+        submitStream({
+          url: targetUrl,
+          pageUrl: pageUrl,
+          referer: pageUrl,
+          title: title
+        }, mode);
+      }
+    })();
 
     setInterval(fetchStatus, 1500);
     fetchStatus();
