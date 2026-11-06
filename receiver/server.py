@@ -31,7 +31,7 @@ DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 _MAC_HEX = f"{uuid.getnode():012x}"
 MAC_ADDR = ":".join(_MAC_HEX[i:i + 2] for i in range(0, 12, 2))
 DEVICE_UUID = os.environ.get("BRAVECAST_UUID") or f"{_MAC_HEX[:8]}-{_MAC_HEX[8:]}-4000-8000-000000000000"
-FRIENDLY_NAME = os.environ.get("BRAVECAST_NAME") or ("Living Room TV (Mac)" if ps.IS_MAC else "Living Room TV (PC)")
+FRIENDLY_NAME = os.environ.get("BRAVECAST_NAME") or f"Living Room TV ({ps.default_device_label()})"
 SMART_TV_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 Native TV /0.0.1 TV Safari/538.1"
 KIOSK_DIR = ps.kiosk_profile_dir()
 
@@ -125,6 +125,7 @@ def wake_tv_and_screen():
 
 def launch_brave_kiosk(url, is_youtube=True):
     """Launch Brave in dedicated, guaranteed fullscreen kiosk mode"""
+    ps.ensure_display_env()
     wake_tv_and_screen()
     try:
         # 1. Terminate any previous Kiosk instance so flags like --kiosk apply fresh
@@ -146,6 +147,7 @@ def launch_brave_kiosk(url, is_youtube=True):
             "--autoplay-policy=no-user-gesture-required",
             "--disable-features=Translate",
             "--overscroll-history-navigation=0",
+            *ps.extra_browser_flags(),
             f"--app={url}"
         ]
         if is_youtube:
