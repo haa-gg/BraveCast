@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>BraveCast Remote • Living Room TV</title>
+  <title>BraveCast Jam • Living Room TV</title>
   <style>
     :root {
       --bg: #0b0f19;
-      --card-bg: rgba(26, 34, 52, 0.7);
+      --card-bg: rgba(26, 34, 52, 0.75);
       --card-border: rgba(255, 255, 255, 0.08);
       --accent: #a855f7;
       --accent-hover: #9333ea;
@@ -26,21 +26,23 @@
 
     body {
       background-color: var(--bg);
+      background-image: radial-gradient(circle at 15% 10%, rgba(168, 85, 247, 0.14), transparent 40%),
+                        radial-gradient(circle at 85% 80%, rgba(59, 130, 246, 0.1), transparent 40%);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: var(--text);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 24px 16px 40px;
+      padding: 20px 14px 48px;
     }
 
     .container {
       width: 100%;
-      max-width: 480px;
+      max-width: 500px;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 16px;
     }
 
     /* Header */
@@ -48,39 +50,92 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
     .brand h1 {
       font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+      background: linear-gradient(135deg, #fff, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: #e9d5ff;
+      background: rgba(168, 85, 247, 0.18);
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      padding: 5px 10px;
+      border-radius: 9999px;
+      font-weight: 600;
+      cursor: pointer;
     }
 
     .badge-online {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
+      font-size: 11px;
       color: #4ade80;
       background: rgba(34, 197, 94, 0.12);
       border: 1px solid rgba(34, 197, 94, 0.3);
-      padding: 4px 10px;
+      padding: 5px 10px;
       border-radius: 9999px;
       font-weight: 600;
     }
 
     .dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #22c55e;
       box-shadow: 0 0 8px #22c55e;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(168, 85, 247, 0.5);
+      color: #f8fafc;
+      padding: 10px 18px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+      z-index: 100;
+      opacity: 0;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      pointer-events: none;
+      max-width: 92vw;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
     }
 
     /* Card styling */
@@ -89,54 +144,46 @@
       border: 1px solid var(--card-border);
       backdrop-filter: blur(20px);
       border-radius: 20px;
-      padding: 20px;
+      padding: 18px;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
     }
 
-    /* Service Banner */
-    .service-banner {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: rgba(29, 185, 84, 0.1);
-      border: 1px solid rgba(29, 185, 84, 0.3);
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 12px;
-    }
-
-    .service-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #4ade80;
-      font-weight: 600;
-    }
-
-    /* Input Bar */
+    /* Input Bar & Search */
     .cast-form {
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
 
+    .cast-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
     .cast-form label {
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 700;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.6px;
+    }
+
+    .jam-mode-tag {
+      font-size: 11px;
+      color: #c084fc;
+      font-weight: 600;
     }
 
     .input-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
     }
 
     input[type="text"] {
       flex: 1;
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.14);
       color: white;
       padding: 12px 14px;
       border-radius: 12px;
@@ -149,23 +196,144 @@
       border-color: var(--accent);
     }
 
-    .btn-cast {
+    .action-btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-jam-add {
+      flex: 1.4;
       background: linear-gradient(135deg, #a855f7, #6366f1);
       color: white;
       border: none;
-      padding: 12px 20px;
+      padding: 11px 14px;
       border-radius: 12px;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      transition: opacity 0.2s, transform 0.1s;
     }
 
-    .btn-cast:active {
+    .btn-play-now {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #e2e8f0;
+      padding: 11px 12px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-jam-add:active, .btn-play-now:active {
       transform: scale(0.97);
+    }
+
+    /* Search Results Drawer */
+    .search-results {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .search-results.open {
+      display: flex;
+    }
+
+    .search-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .search-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .search-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 8px;
+      border-radius: 12px;
+    }
+
+    .search-thumb {
+      width: 68px;
+      height: 38px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #1e293b;
+      flex-shrink: 0;
+    }
+
+    .search-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .search-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    .search-actions {
+      display: flex;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .btn-mini {
+      border: none;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-mini.jam {
+      background: rgba(168, 85, 247, 0.25);
+      border: 1px solid rgba(168, 85, 247, 0.5);
+      color: #e9d5ff;
+    }
+
+    .btn-mini.now {
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
     }
 
     /* Quick Launch Row */
@@ -176,38 +344,29 @@
 
     .btn-launch {
       flex: 1;
-      padding: 12px;
+      padding: 10px;
       border-radius: 12px;
       border: none;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
       cursor: pointer;
-      transition: opacity 0.2s, transform 0.1s;
     }
 
     .btn-launch.yt {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: white;
-    }
-
-    .btn-launch.spotify {
-      background: linear-gradient(135deg, #1db954, #16a34a);
-      color: white;
-    }
-
-    .btn-launch:active {
-      transform: scale(0.97);
+      background: rgba(239, 68, 68, 0.16);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
     }
 
     /* Now Playing Card */
     .now-playing {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
       text-align: center;
     }
 
@@ -220,12 +379,19 @@
     }
 
     .stream-title {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 700;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       color: #fff;
+    }
+
+    .stream-added-by {
+      font-size: 12px;
+      color: #c084fc;
+      font-weight: 600;
+      margin-top: -8px;
     }
 
     .progress-box {
@@ -267,47 +433,40 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 20px;
-      margin-top: 6px;
+      gap: 18px;
+      margin-top: 4px;
     }
 
     .btn-circle {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.12);
       color: white;
-      width: 50px;
-      height: 50px;
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 18px;
       cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
-    }
-
-    .btn-circle:active {
-      transform: scale(0.92);
-      background: rgba(255, 255, 255, 0.15);
     }
 
     .btn-circle.large {
-      width: 68px;
-      height: 68px;
-      font-size: 26px;
+      width: 64px;
+      height: 64px;
+      font-size: 24px;
       background: linear-gradient(135deg, #a855f7, #7c3aed);
       border: none;
       box-shadow: 0 6px 24px rgba(168, 85, 247, 0.4);
     }
 
-    /* Sub controls */
     .sub-controls {
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
-      padding-top: 14px;
-      margin-top: 8px;
+      padding-top: 12px;
+      margin-top: 4px;
     }
 
     .vol-row {
@@ -315,59 +474,188 @@
       align-items: center;
       gap: 10px;
       flex: 1;
-      max-width: 220px;
+      max-width: 210px;
     }
 
     .btn-icon-sub {
       background: none;
       border: none;
       color: var(--text-muted);
-      font-size: 16px;
+      font-size: 15px;
       cursor: pointer;
     }
 
-    .btn-icon-sub:hover {
-      color: white;
+    /* Jam Queue Card */
+    .jam-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .jam-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .jam-title-wrap h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #f8fafc;
+      font-weight: 800;
+    }
+
+    .jam-count-badge {
+      background: rgba(168, 85, 247, 0.25);
+      border: 1px solid rgba(168, 85, 247, 0.5);
+      color: #e9d5ff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 9999px;
+    }
+
+    .btn-clear-jam {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .jam-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      margin-bottom: 8px;
+    }
+
+    .jam-pos {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--text-muted);
+      width: 22px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .jam-thumb {
+      width: 56px;
+      height: 34px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #1e293b;
+      flex-shrink: 0;
+    }
+
+    .jam-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .jam-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .jam-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .user-chip {
+      color: #c084fc;
+      font-weight: 600;
+    }
+
+    .jam-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .btn-vote {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      padding: 5px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .btn-vote.voted {
+      background: rgba(168, 85, 247, 0.25);
+      border-color: rgba(168, 85, 247, 0.6);
+      color: #f3e8ff;
+    }
+
+    .btn-q-act {
+      background: rgba(255, 255, 255, 0.06);
+      border: none;
+      color: #94a3b8;
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     /* History List */
     .history-card h3 {
-      font-size: 14px;
+      font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .history-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 12px;
+      padding: 9px 12px;
       background: rgba(15, 23, 42, 0.4);
       border-radius: 10px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .history-item:hover {
-      background: rgba(168, 85, 247, 0.15);
     }
 
     .history-title {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 320px;
+      max-width: 280px;
     }
 
     .history-btn {
       color: var(--accent);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
     }
   </style>
 </head>
@@ -377,40 +665,69 @@
     <!-- Top Header -->
     <div class="header">
       <div class="brand">
-        <h1>BraveCast Remote</h1>
+        <h1>🦁 BraveCast Jam</h1>
       </div>
-      <div class="badge-online">
-        <div class="dot"></div>
-        <span>Living Room TV (Mac)</span>
-      </div>
-    </div>
-
-    <!-- Spotify Connect Notification Banner -->
-    <div class="service-banner">
-      <div class="service-left">
-        <span>🟢</span>
-        <span>Spotify Connect: "Living Room TV (Mac)" is broadcasting</span>
+      <div class="header-right">
+        <button class="user-pill" id="user-pill" title="Tap to set your Jam nickname">
+          <span>👤</span>
+          <span id="user-name-label">Guest</span>
+        </button>
+        <div class="badge-online">
+          <div class="dot"></div>
+          <span>TV Ready</span>
+        </div>
       </div>
     </div>
 
-    <!-- Quick Cast Form -->
+    <!-- Search & Add to Jam Card -->
     <div class="card cast-form">
-      <label>Beam Video to TV</label>
+      <div class="cast-header">
+        <label>Search YouTube or Paste Link</label>
+        <span class="jam-mode-tag">🎵 Fair-Share Jam</span>
+      </div>
       <div class="input-row">
-        <input type="text" id="stream-url-input" placeholder="Paste .m3u8 or video URL..." autocomplete="off">
-        <button class="btn-cast" id="cast-btn">🚀 Cast</button>
+        <input type="text" id="stream-url-input" placeholder="Search song/video or paste URL..." autocomplete="off">
+      </div>
+      <div class="action-btn-row">
+        <button class="btn-jam-add" id="jam-add-btn">➕ Add to Jam / Search</button>
+        <button class="btn-play-now" id="play-now-btn">🚀 Play Now</button>
+      </div>
+
+      <!-- YouTube Search Results -->
+      <div class="search-results" id="search-results">
+        <div class="search-header">
+          <span id="search-status-label">YouTube Results</span>
+          <button class="search-close" id="search-close-btn">✕ Close</button>
+        </div>
+        <div id="search-results-list"></div>
       </div>
 
       <!-- Quick Launch Apps -->
       <div class="quick-launch-row">
         <button class="btn-launch yt" id="yt-btn">
           <span>📺</span>
-          <span>YouTube on TV (Ad-Free)</span>
+          <span>Open YouTube TV</span>
         </button>
-        <button class="btn-launch" id="autoplay-toggle-btn" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc; flex: 1;">
+        <button class="btn-launch" id="autoplay-toggle-btn" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc;">
           <span>♾️</span>
           <span id="autoplay-label">Autoplay: ON</span>
         </button>
+      </div>
+    </div>
+
+    <!-- Jam Queue Card -->
+    <div class="card">
+      <div class="jam-header">
+        <div class="jam-title-wrap">
+          <h3>🎶 Up Next in Jam</h3>
+          <span class="jam-count-badge" id="jam-count">0</span>
+        </div>
+        <button class="btn-clear-jam" id="clear-jam-btn" style="display: none;">Clear All</button>
+      </div>
+      <div id="jam-queue-container">
+        <div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px 4px;">
+          Queue is open — search YouTube above or paste a link to add to the Jam! When the queue ends, ♾️ Autoplay keeps going.
+        </div>
       </div>
     </div>
 
@@ -418,6 +735,7 @@
     <div class="card now-playing" id="player-card">
       <div class="stream-tag" id="status-tag">Ambient Standby</div>
       <div class="stream-title" id="now-title">Ready for casting</div>
+      <div class="stream-added-by" id="now-added-by" style="display: none;"></div>
 
       <div class="progress-box">
         <input type="range" id="seek-bar" min="0" max="100" value="0">
@@ -431,7 +749,7 @@
         <button class="btn-circle" id="btn-back" title="Rewind 10s">⏪</button>
         <button class="btn-circle large" id="btn-playpause" title="Play / Pause">▶️</button>
         <button class="btn-circle" id="btn-fwd" title="Forward 30s">⏩</button>
-        <button class="btn-circle" id="btn-skip" title="Next Video (Doomscroll Autopilot)">⏭️</button>
+        <button class="btn-circle" id="btn-skip" title="Skip to Next in Jam / Autoplay">⏭️</button>
       </div>
 
       <div class="sub-controls">
@@ -450,19 +768,27 @@
     <div class="card history-card">
       <h3>Recent Streams</h3>
       <div id="history-container">
-        <div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 12px;">
+        <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 8px;">
           No recent streams yet.
         </div>
       </div>
     </div>
   </div>
 
+  <div class="toast" id="toast"></div>
+
   <script>
     const urlInput = document.getElementById('stream-url-input');
-    const castBtn = document.getElementById('cast-btn');
+    const jamAddBtn = document.getElementById('jam-add-btn');
+    const playNowBtn = document.getElementById('play-now-btn');
+    const searchResultsBox = document.getElementById('search-results');
+    const searchResultsList = document.getElementById('search-results-list');
+    const searchStatusLabel = document.getElementById('search-status-label');
+    const searchCloseBtn = document.getElementById('search-close-btn');
     const ytBtn = document.getElementById('yt-btn');
     const statusTag = document.getElementById('status-tag');
     const nowTitle = document.getElementById('now-title');
+    const nowAddedBy = document.getElementById('now-added-by');
     const seekBar = document.getElementById('seek-bar');
     const timeCurr = document.getElementById('time-curr');
     const timeTotal = document.getElementById('time-total');
@@ -476,9 +802,48 @@
     const volBar = document.getElementById('vol-bar');
     const btnFs = document.getElementById('btn-fs');
     const btnStop = document.getElementById('btn-stop');
+    const jamQueueContainer = document.getElementById('jam-queue-container');
+    const jamCountBadge = document.getElementById('jam-count');
+    const clearJamBtn = document.getElementById('clear-jam-btn');
     const historyContainer = document.getElementById('history-container');
+    const userPill = document.getElementById('user-pill');
+    const userNameLabel = document.getElementById('user-name-label');
+    const toastEl = document.getElementById('toast');
 
     let isSeeking = false;
+    let toastTimer = null;
+
+    // Persistent client ID & nickname for Fair-Share Jam and Upvoting
+    let clientId = localStorage.getItem('bravecast_client_id');
+    if (!clientId) {
+      clientId = 'u_' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('bravecast_client_id', clientId);
+    }
+    let userName = localStorage.getItem('bravecast_user_name') || 'Glen';
+    userNameLabel.textContent = userName;
+
+    userPill.addEventListener('click', () => {
+      const next = prompt('Enter your name for the Jam Queue:', userName);
+      if (next && next.trim()) {
+        userName = next.trim().slice(0, 20);
+        localStorage.setItem('bravecast_user_name', userName);
+        userNameLabel.textContent = userName;
+        showToast(`Joined Jam as ${userName}`);
+      }
+    });
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2800);
+    }
+
+    function escHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
 
     function formatTime(secs) {
       if (!secs || isNaN(secs)) return "0:00";
@@ -487,49 +852,190 @@
       return `${m}:${s < 10 ? '0' : ''}${s}`;
     }
 
+    function isLikelyUrl(input) {
+      const s = input.trim();
+      if (/^https?:\/\//i.test(s)) return true;
+      if (/^(www\.)?(youtube\.com|youtu\.be)\//i.test(s)) return true;
+      if (/\.(m3u8|mp4|webm|mkv)(\?|$)/i.test(s)) return true;
+      return false;
+    }
+
     function sendControl(action, value = null) {
       fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: action, value: value })
-      }).catch(err => console.error("Control error:", err));
+      })
+      .then(() => fetchStatus())
+      .catch(err => console.error("Control error:", err));
     }
 
-    function castStream(url, title = null) {
-      if (!url) return;
+    function submitStream(payload, mode = 'auto') {
+      const body = Object.assign({}, payload, {
+        addedBy: userName,
+        clientId: clientId,
+        mode: mode
+      });
       fetch('/api/cast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url, title: title })
+        body: JSON.stringify(body)
       })
       .then(r => r.json())
       .then(res => {
-        urlInput.value = '';
+        if (res.message) showToast(res.message);
+        if (res.jamQueue) renderJamQueue(res.jamQueue);
         fetchStatus();
       })
-      .catch(err => alert("Cast failed: " + err));
+      .catch(err => showToast("Cast failed: " + err));
     }
 
-    castBtn.addEventListener('click', () => {
-      const url = urlInput.value.trim();
-      if (url) castStream(url);
+    function searchYouTube(query, playFirstImmediately = false) {
+      searchResultsBox.classList.add('open');
+      searchStatusLabel.textContent = `Searching "${query}"...`;
+      searchResultsList.innerHTML = '';
+
+      fetch('/api/youtube/search?q=' + encodeURIComponent(query))
+        .then(r => r.json())
+        .then(data => {
+          const results = data.results || [];
+          if (results.length === 0) {
+            searchStatusLabel.textContent = 'No YouTube results found';
+            return;
+          }
+          if (playFirstImmediately) {
+            const top = results[0];
+            submitStream(top, 'now');
+            searchResultsBox.classList.remove('open');
+            urlInput.value = '';
+            return;
+          }
+          searchStatusLabel.textContent = `Top Results for "${query}"`;
+          searchResultsList.innerHTML = results.map(item => `
+            <div class="search-item">
+              <img class="search-thumb" src="${escHtml(item.thumbnail)}" alt="">
+              <div class="search-meta">
+                <div class="search-title">${escHtml(item.title)}</div>
+                <div class="search-sub">${escHtml(item.channel)}${item.duration ? ' • ' + escHtml(item.duration) : ''}</div>
+              </div>
+              <div class="search-actions">
+                <button class="btn-mini jam" data-vid="${escHtml(item.videoId)}" data-title="${escHtml(item.title)}" data-channel="${escHtml(item.channel)}" data-thumb="${escHtml(item.thumbnail)}" data-mode="queue">+ Jam</button>
+                <button class="btn-mini now" data-vid="${escHtml(item.videoId)}" data-title="${escHtml(item.title)}" data-channel="${escHtml(item.channel)}" data-thumb="${escHtml(item.thumbnail)}" data-mode="now">▶️</button>
+              </div>
+            </div>
+          `).join('');
+        })
+        .catch(() => {
+          searchStatusLabel.textContent = 'Search failed';
+        });
+    }
+
+    searchResultsList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-vid]');
+      if (!btn) return;
+      submitStream({
+        videoId: btn.dataset.vid,
+        url: 'https://www.youtube.com/tv?v=' + btn.dataset.vid,
+        title: btn.dataset.title,
+        channel: btn.dataset.channel,
+        thumbnail: btn.dataset.thumb
+      }, btn.dataset.mode || 'queue');
     });
 
-    urlInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const url = urlInput.value.trim();
-        if (url) castStream(url);
-      }
+    searchCloseBtn.addEventListener('click', () => {
+      searchResultsBox.classList.remove('open');
     });
+
+    function handleInputAction(mode) {
+      const raw = urlInput.value.trim();
+      if (!raw) return;
+      if (isLikelyUrl(raw)) {
+        const normalized = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+        submitStream({ url: normalized }, mode);
+        urlInput.value = '';
+        searchResultsBox.classList.remove('open');
+      } else {
+        searchYouTube(raw, mode === 'now');
+      }
+    }
+
+    jamAddBtn.addEventListener('click', () => handleInputAction('queue'));
+    playNowBtn.addEventListener('click', () => handleInputAction('now'));
+
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleInputAction('queue');
+    });
+
+    function jamAction(action, id = null) {
+      fetch('/api/jam/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, id: id, clientId: clientId })
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.jamQueue) renderJamQueue(res.jamQueue);
+        fetchStatus();
+      });
+    }
+
+    clearJamBtn.addEventListener('click', () => jamAction('clear'));
+
+    jamQueueContainer.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-jam-act]');
+      if (!btn) return;
+      jamAction(btn.dataset.jamAct, btn.dataset.id);
+    });
+
+    function renderJamQueue(queue) {
+      jamCountBadge.textContent = queue.length;
+      clearJamBtn.style.display = queue.length > 0 ? 'inline-block' : 'none';
+      if (!queue || queue.length === 0) {
+        jamQueueContainer.innerHTML = `
+          <div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px 4px;">
+            Queue is open — search YouTube above or paste a link to add to the Jam! When the queue ends, ♾️ Autoplay keeps going.
+          </div>
+        `;
+        return;
+      }
+
+      jamQueueContainer.innerHTML = queue.map((item, idx) => {
+        const voted = Array.isArray(item.voters) && item.voters.includes(clientId);
+        const posLabel = item.priority > 0 ? '⬆️' : `#${idx + 1}`;
+        const thumbHtml = item.thumbnail
+          ? `<img class="jam-thumb" src="${escHtml(item.thumbnail)}" alt="">`
+          : `<div class="jam-thumb" style="display:flex;align-items:center;justify-content:center;font-size:16px;">🎬</div>`;
+        return `
+          <div class="jam-item">
+            <div class="jam-pos">${posLabel}</div>
+            ${thumbHtml}
+            <div class="jam-info">
+              <div class="jam-item-title">${escHtml(item.title)}</div>
+              <div class="jam-item-meta">
+                <span class="user-chip">👤 ${escHtml(item.addedBy || 'Guest')}</span>
+                ${item.channel ? `<span>• ${escHtml(item.channel)}</span>` : ''}
+              </div>
+            </div>
+            <div class="jam-actions">
+              <button class="btn-vote ${voted ? 'voted' : ''}" data-jam-act="vote" data-id="${escHtml(item.id)}" title="Upvote">
+                🔥 ${item.votes || 0}
+              </button>
+              <button class="btn-q-act" data-jam-act="play_next" data-id="${escHtml(item.id)}" title="Play Next">⬆️</button>
+              <button class="btn-q-act" data-jam-act="play_now" data-id="${escHtml(item.id)}" title="Play Now">▶️</button>
+              <button class="btn-q-act" data-jam-act="remove" data-id="${escHtml(item.id)}" title="Remove">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
 
     ytBtn.addEventListener('click', () => {
       ytBtn.textContent = "⏳ Launching...";
       fetch('/api/youtube', { method: 'POST' })
         .then(() => {
-          ytBtn.innerHTML = "<span>📺</span><span>YouTube on TV (Ad-Free)</span>";
+          ytBtn.innerHTML = "<span>📺</span><span>Open YouTube TV</span>";
           fetchStatus();
-        })
-        .catch(err => alert("Failed to launch YouTube: " + err));
+        });
     });
 
     btnPlayPause.addEventListener('click', () => sendControl('toggle'));
@@ -543,8 +1049,7 @@
 
     seekBar.addEventListener('input', () => { isSeeking = true; });
     seekBar.addEventListener('change', () => {
-      const targetSec = parseFloat(seekBar.value);
-      sendControl('seek', targetSec);
+      sendControl('seek', parseFloat(seekBar.value));
       isSeeking = false;
     });
 
@@ -572,8 +1077,15 @@
 
           if (data.stream) {
             nowTitle.textContent = data.stream.title || data.stream.url;
+            if (data.stream.addedBy) {
+              nowAddedBy.style.display = 'block';
+              nowAddedBy.textContent = `Queued by ${data.stream.addedBy}`;
+            } else {
+              nowAddedBy.style.display = 'none';
+            }
           } else {
             nowTitle.textContent = "Ready for casting";
+            nowAddedBy.style.display = 'none';
           }
 
           if (!isSeeking && data.duration > 0) {
@@ -588,6 +1100,10 @@
             btnAutoplayToggle.style.borderColor = data.autoplay.enabled ? "rgba(168, 85, 247, 0.6)" : "rgba(255, 255, 255, 0.2)";
           }
 
+          if (Array.isArray(data.jamQueue)) {
+            renderJamQueue(data.jamQueue);
+          }
+
           if (typeof data.volume === 'number') {
             volBar.value = data.volume;
             btnMute.textContent = data.muted || data.volume === 0 ? "🔇" : "🔊";
@@ -595,15 +1111,29 @@
 
           if (data.history && data.history.length > 0) {
             historyContainer.innerHTML = data.history.map(item => `
-              <div class="history-item" onclick="castStream('${item.url}', '${item.title.replace(/'/g, "\\'")}')">
-                <div class="history-title">${item.title}</div>
-                <div class="history-btn">Re-cast 🚀</div>
+              <div class="history-item" data-url="${escHtml(item.url)}" data-title="${escHtml(item.title)}">
+                <div class="history-title">${escHtml(item.title)}</div>
+                <div class="history-btn">+ Jam 🎶</div>
               </div>
             `).join('');
           }
         })
         .catch(() => {});
     }
+
+    historyContainer.addEventListener('click', (e) => {
+      const row = e.target.closest('.history-item');
+      if (!row) return;
+      submitStream({ url: row.dataset.url, title: row.dataset.title }, 'queue');
+    });
+
+    // Listen to SSE for instant Jam Queue updates across all phones
+    try {
+      const es = new EventSource('/api/events');
+      es.addEventListener('JAM_UPDATE', (e) => {
+        try { renderJamQueue(JSON.parse(e.data)); } catch (_) {}
+      });
+    } catch (_) {}
 
     setInterval(fetchStatus, 1500);
     fetchStatus();

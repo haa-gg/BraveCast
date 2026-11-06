@@ -20,9 +20,9 @@ import platform_support as ps
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 try:
-    from autoplay import YouTubeAutopilot
+    from autoplay import YouTubeAutopilot, yt_oembed, yt_search
 except ImportError:
-    from receiver.autoplay import YouTubeAutopilot
+    from receiver.autoplay import YouTubeAutopilot, yt_oembed, yt_search
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -73,6 +73,147 @@ class ReceiverState:
         }
         self.sse_queues = []
         self.history = []
+        self.jam_queue = []
+        self.user_last_played_seq = {}
+        self._seq_counter = 0
+        self._priority_counter = 0
+
+    def _next_seq_locked(self):
+        self._seq_counter += 1
+        return self._seq_counter
+
+    def record_user_played(self, added_by):
+        user_key = (added_by or "Guest").strip().lower() or "guest"
+        with self.lock:
+            self.user_last_played_seq[user_key] = self._next_seq_locked()
+
+    def _sort_jam_locked(self):
+        if len(self.jam_queue) <= 1:
+            return
+        pinned = [it for it in self.jam_queue if it.get("priority", 0) > 0]
+        pinned.sort(key=lambda it: (-it.get("priority", 0), it.get("seq", 0)))
+
+        standard = [it for it in self.jam_queue if it.get("priority", 0) == 0]
+        by_user = {}
+        user_first_seq = {}
+        for it in standard:
+            uk = (it.get("addedBy") or "Guest").strip().lower() or "guest"
+            by_user.setdefault(uk, []).append(it)
+            if uk not in user_first_seq or it["seq"] < user_first_seq[uk]:
+                user_first_seq[uk] = it["seq"]
+
+        round_map = {}
+        for uk, items in by_user.items():
+            items.sort(key=lambda x: (-x.get("votes", 0), x.get("seq", 0)))
+            for r_idx, it in enumerate(items):
+                round_map[it["id"]] = (
+                    r_idx,
+                    self.user_last_played_seq.get(uk, 0),
+                    user_first_seq[uk],
+                )
+
+        standard.sort(
+            key=lambda it: (
+                -it.get("votes", 0),
+                round_map[it["id"]][0],
+                round_map[it["id"]][1],
+                round_map[it["id"]][2],
+                it.get("seq", 0),
+            )
+        )
+        self.jam_queue = pinned + standard
+
+    def has_jam_items(self):
+        with self.lock:
+            return len(self.jam_queue) > 0
+
+    def get_jam_queue(self):
+        with self.lock:
+            return [dict(it) for it in self.jam_queue]
+
+    def add_to_jam(self, item, play_next=False, voter_id=None):
+        with self.lock:
+            # Deduplicate if the exact videoId or URL is already waiting in the queue
+            vid = item.get("videoId")
+            url = item.get("url")
+            for idx, existing in enumerate(self.jam_queue):
+                if (vid and existing.get("videoId") == vid) or (url and existing.get("url") == url):
+                    voter = voter_id or item.get("addedBy") or "anon"
+                    voters = list(existing.get("voters") or [])
+                    if voter not in voters:
+                        voters.append(voter)
+                        existing["voters"] = voters
+                        existing["votes"] = len(voters)
+                    if play_next:
+                        self._priority_counter += 1
+                        existing["priority"] = self._priority_counter
+                    self._sort_jam_locked()
+                    pos = next((i + 1 for i, x in enumerate(self.jam_queue) if x["id"] == existing["id"]), idx + 1)
+                    return dict(existing), pos
+
+            new_item = dict(item)
+            new_item["id"] = uuid.uuid4().hex[:8]
+            new_item["seq"] = self._next_seq_locked()
+            new_item["addedAt"] = int(time.time())
+            new_item["addedBy"] = (item.get("addedBy") or "Guest").strip() or "Guest"
+            new_item["voters"] = []
+            new_item["votes"] = 0
+            if play_next:
+                self._priority_counter += 1
+                new_item["priority"] = self._priority_counter
+            else:
+                new_item["priority"] = 0
+
+            self.jam_queue.append(new_item)
+            self._sort_jam_locked()
+            pos = next((i + 1 for i, x in enumerate(self.jam_queue) if x["id"] == new_item["id"]), len(self.jam_queue))
+            return dict(new_item), pos
+
+    def pop_next_jam(self):
+        with self.lock:
+            if not self.jam_queue:
+                return None
+            item = self.jam_queue.pop(0)
+            uk = (item.get("addedBy") or "Guest").strip().lower() or "guest"
+            self.user_last_played_seq[uk] = self._next_seq_locked()
+            self._sort_jam_locked()
+            return dict(item)
+
+    def jam_action(self, action, item_id=None, client_id=None):
+        with self.lock:
+            if action == "clear":
+                self.jam_queue = []
+                return None
+            target = next((it for it in self.jam_queue if it.get("id") == item_id), None)
+            if not target:
+                return None
+            if action == "remove":
+                self.jam_queue = [it for it in self.jam_queue if it.get("id") != item_id]
+                self._sort_jam_locked()
+                return dict(target)
+            if action == "play_now":
+                self.jam_queue = [it for it in self.jam_queue if it.get("id") != item_id]
+                uk = (target.get("addedBy") or "Guest").strip().lower() or "guest"
+                self.user_last_played_seq[uk] = self._next_seq_locked()
+                self._sort_jam_locked()
+                return dict(target)
+            if action == "play_next":
+                self._priority_counter += 1
+                target["priority"] = self._priority_counter
+                self._sort_jam_locked()
+                return dict(target)
+            if action == "vote":
+                voter = (client_id or "anon").strip() or "anon"
+                voters = list(target.get("voters") or [])
+                if voter in voters:
+                    voters.remove(voter)
+                else:
+                    voters.append(voter)
+                target["voters"] = voters
+                target["votes"] = len(voters)
+                self._sort_jam_locked()
+                return dict(target)
+            return None
 
     def update_status(self, data):
         with self.lock:
@@ -80,7 +221,19 @@ class ReceiverState:
                 if k in data:
                     self.status[k] = data[k]
             if "stream" in data:
-                self.status["stream"] = data["stream"]
+                new_stream = data["stream"]
+                old_stream = self.status.get("stream")
+                if isinstance(new_stream, dict) and isinstance(old_stream, dict):
+                    # Preserve Jam metadata (addedBy, channel, thumbnail) when autopilot updates progress on the same video
+                    same_yt = (
+                        new_stream.get("source") == "youtube"
+                        and old_stream.get("url") == new_stream.get("url")
+                    )
+                    if same_yt:
+                        for meta_k in ("addedBy", "channel", "thumbnail", "videoId"):
+                            if meta_k in old_stream and meta_k not in new_stream:
+                                new_stream[meta_k] = old_stream[meta_k]
+                self.status["stream"] = new_stream
             self.status["lastUpdate"] = time.time()
 
     def get_status(self):
@@ -123,11 +276,6 @@ class ReceiverState:
                     self.sse_queues.remove(dq)
 
 state_mgr = ReceiverState()
-autopilot = YouTubeAutopilot(
-    CDP_PORT,
-    is_youtube_running=lambda: state_mgr.get_status().get("youtubeRunning", False),
-    on_player_state=state_mgr.update_status,
-)
 
 YT_URL_RE = re.compile(
     r"(?:youtube\.com/(?:watch\?.*?\bv=|tv\?.*?\bv=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})"
@@ -179,6 +327,134 @@ def launch_brave_kiosk(url, is_youtube=True):
         threading.Thread(target=activate_window, daemon=True).start()
     except Exception as e:
         print(f"Error launching Brave Kiosk: {e}")
+
+
+def build_stream_item(data):
+    url = (data.get("url") or "").strip()
+    vid = (data.get("videoId") or "").strip()
+    if not vid and url:
+        yt_match = YT_URL_RE.search(url)
+        if yt_match:
+            vid = yt_match.group(1)
+
+    added_by = (data.get("addedBy") or "Guest").strip() or "Guest"
+    if vid:
+        yt_url = f"https://www.youtube.com/tv?v={vid}"
+        title = (data.get("title") or "").strip()
+        channel = (data.get("channel") or "").strip()
+        thumbnail = (data.get("thumbnail") or "").strip()
+        if not title or title.startswith("YouTube ("):
+            meta = yt_oembed(vid)
+            title = meta.get("title") or title or f"YouTube ({vid})"
+            channel = channel or meta.get("channel") or ""
+            thumbnail = thumbnail or meta.get("thumbnail") or ""
+        if not thumbnail:
+            thumbnail = f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
+        return {
+            "url": yt_url,
+            "videoId": vid,
+            "title": title,
+            "channel": channel,
+            "thumbnail": thumbnail,
+            "pageUrl": data.get("pageUrl") or url or yt_url,
+            "source": "youtube",
+            "addedBy": added_by,
+            "timestamp": int(time.time()),
+        }
+
+    title = (data.get("title") or "").strip() or url.split("/")[-1].split("?")[0] or "Video Stream"
+    return {
+        "url": url,
+        "videoId": None,
+        "title": title,
+        "channel": (data.get("channel") or "").strip(),
+        "thumbnail": (data.get("thumbnail") or "").strip(),
+        "pageUrl": data.get("pageUrl", ""),
+        "source": "stream",
+        "addedBy": added_by,
+        "timestamp": int(time.time()),
+    }
+
+
+def play_stream_item(stream_info):
+    """Play a YouTube or HLS/MP4 item immediately without killing Brave if YouTube TV is already open."""
+    state_mgr.record_user_played(stream_info.get("addedBy"))
+    state_mgr.add_history(stream_info)
+
+    if stream_info.get("source") == "youtube" or stream_info.get("videoId"):
+        vid = stream_info["videoId"]
+        yt_url = f"https://www.youtube.com/tv?v={vid}"
+        state_mgr.update_status({
+            "state": "playing",
+            "youtubeRunning": True,
+            "stream": stream_info,
+            "currentTime": 0,
+        })
+        if autopilot.page_alive():
+            wake_tv_and_screen()
+            ps.activate_kiosk(KIOSK_DIR)
+            autopilot.notify_video(vid)
+            autopilot.play_video(vid)
+        else:
+            autopilot.notify_video(vid)
+            launch_brave_kiosk(yt_url, is_youtube=True)
+    else:
+        state_mgr.update_status({
+            "state": "playing",
+            "youtubeRunning": False,
+            "stream": stream_info,
+            "currentTime": 0,
+        })
+        has_active_receiver = len(state_mgr.sse_queues) > 0 and not autopilot.page_alive()
+        if not has_active_receiver:
+            launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
+        else:
+            wake_tv_and_screen()
+            ps.activate_kiosk(KIOSK_DIR)
+        state_mgr.broadcast("LOAD", stream_info)
+
+    state_mgr.broadcast("JAM_UPDATE", state_mgr.get_jam_queue())
+
+
+def is_anything_playing():
+    if autopilot.is_actively_playing():
+        return True
+    st = state_mgr.get_status()
+    if (
+        st.get("state") == "playing"
+        and not st.get("youtubeRunning")
+        and len(state_mgr.sse_queues) > 0
+        and (time.time() - st.get("lastUpdate", 0) < 15.0)
+    ):
+        return True
+    return False
+
+
+def handle_autopilot_jam_pop():
+    item = state_mgr.pop_next_jam()
+    if not item:
+        return None
+    state_mgr.add_history(item)
+    state_mgr.broadcast("JAM_UPDATE", state_mgr.get_jam_queue())
+    if item.get("videoId"):
+        state_mgr.update_status({
+            "state": "playing",
+            "youtubeRunning": True,
+            "stream": item,
+            "currentTime": 0,
+        })
+        return item
+    play_stream_item(item)
+    return {"handled_externally": True}
+
+
+autopilot = YouTubeAutopilot(
+    CDP_PORT,
+    is_youtube_running=lambda: state_mgr.get_status().get("youtubeRunning", False),
+    on_player_state=state_mgr.update_status,
+    pop_jam_next=handle_autopilot_jam_pop,
+    has_jam_items=state_mgr.has_jam_items,
+)
 
 
 def start_caffeinate():
@@ -367,8 +643,24 @@ class BraveCastHandler(BaseHTTPRequestHandler):
         if path == "/api/status":
             st = state_mgr.get_status()
             st["history"] = state_mgr.get_history()
+            st["jamQueue"] = state_mgr.get_jam_queue()
             st["autoplay"] = autopilot.status()
+            st["localIp"] = LOCAL_IP
+            st["port"] = PORT
             self.send_json(st)
+            return
+
+        if path == "/api/youtube/search":
+            params = parse_qs(parsed.query)
+            q = (params.get("q") or [""])[0].strip()
+            if not q:
+                self.send_json({"results": []})
+                return
+            try:
+                results = yt_search(q, limit=6)
+                self.send_json({"results": results})
+            except Exception as e:
+                self.send_json({"error": str(e), "results": []}, 500)
             return
 
         if path == "/api/events":
@@ -431,20 +723,30 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 query_parts.append(f"pairingCode={params['pairingCode'][0]}")
             if "v" in params:
                 query_parts.append(f"v={params['v'][0]}")
-                autopilot.notify_video(params["v"][0])
             if "t" in params:
                 query_parts.append(f"t={params['t'][0]}")
 
             if query_parts:
                 yt_url = f"https://www.youtube.com/tv?{'&'.join(query_parts)}"
 
-            launch_brave_kiosk(yt_url, is_youtube=True)
-
-            state_mgr.update_status({
-                "state": "playing",
-                "youtubeRunning": True,
-                "stream": {"url": yt_url, "title": "YouTube on TV (Ad-Free)", "source": "dial"}
-            })
+            dial_vid = params["v"][0] if "v" in params else None
+            if dial_vid:
+                item = build_stream_item({"videoId": dial_vid, "addedBy": "Phone (Cast)"})
+                if is_anything_playing():
+                    queued_item, pos = state_mgr.add_to_jam(item)
+                    state_mgr.broadcast("JAM_UPDATE", state_mgr.get_jam_queue())
+                    print(f"[jam] DIAL video queued at #{pos}: {queued_item.get('title')}")
+                else:
+                    play_stream_item(item)
+            else:
+                # Pairing request without a direct videoId: don't kill an actively playing session
+                if not is_anything_playing():
+                    launch_brave_kiosk(yt_url, is_youtube=True)
+                    state_mgr.update_status({
+                        "state": "playing",
+                        "youtubeRunning": True,
+                        "stream": {"url": yt_url, "title": "YouTube on TV (Ad-Free)", "source": "dial"}
+                    })
 
             self.send_response(201)
             self.send_cors_headers()
@@ -455,7 +757,11 @@ class BraveCastHandler(BaseHTTPRequestHandler):
 
         if path == "/api/youtube":
             url = "https://www.youtube.com/tv"
-            launch_brave_kiosk(url, is_youtube=True)
+            if not autopilot.page_alive():
+                launch_brave_kiosk(url, is_youtube=True)
+            else:
+                wake_tv_and_screen()
+                ps.activate_kiosk(KIOSK_DIR)
             state_mgr.update_status({
                 "state": "playing",
                 "youtubeRunning": True,
@@ -464,71 +770,74 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             self.send_json({"success": True, "message": "YouTube TV opened in Brave Kiosk"})
             return
 
-        if path == "/api/cast":
+        if path in ("/api/cast", "/api/jam/add"):
             data = self.read_json_body()
-            url = data.get("url")
-            if not url:
-                self.send_json({"error": "No url provided"}, 400)
+            url = (data.get("url") or "").strip()
+            vid = (data.get("videoId") or "").strip()
+            if not url and not vid:
+                self.send_json({"error": "No url or videoId provided"}, 400)
                 return
 
-            yt_match = YT_URL_RE.search(url)
-            if yt_match:
-                vid = yt_match.group(1)
-                yt_url = f"https://www.youtube.com/tv?v={vid}"
-                autopilot.notify_video(vid)
-                launch_brave_kiosk(yt_url, is_youtube=True)
-                stream_info = {
-                    "url": yt_url,
-                    "title": data.get("title") or f"YouTube ({vid})",
-                    "pageUrl": url,
-                    "source": "youtube",
-                    "timestamp": int(time.time()),
-                }
-                state_mgr.update_status({
-                    "state": "playing",
-                    "youtubeRunning": True,
-                    "stream": stream_info,
-                    "currentTime": 0,
-                })
-                state_mgr.add_history(stream_info)
+            mode = (data.get("mode") or ("queue" if path == "/api/jam/add" else "auto")).strip().lower()
+            client_id = (data.get("clientId") or "").strip()
+            stream_info = build_stream_item(data)
+
+            should_queue = False
+            if mode in ("queue", "next"):
+                # Even in "queue"/"next" mode, if nothing is playing and the queue is empty, start playing right away
+                if is_anything_playing() or state_mgr.has_jam_items():
+                    should_queue = True
+            elif mode == "auto":
+                if is_anything_playing() or state_mgr.has_jam_items():
+                    should_queue = True
+
+            if should_queue:
+                queued_item, pos = state_mgr.add_to_jam(
+                    stream_info,
+                    play_next=(mode == "next"),
+                    voter_id=client_id or stream_info.get("addedBy"),
+                )
+                queue_snapshot = state_mgr.get_jam_queue()
+                state_mgr.broadcast("JAM_UPDATE", queue_snapshot)
                 self.send_json({
                     "success": True,
-                    "message": f"Casting YouTube video '{vid}' to {FRIENDLY_NAME}",
-                    "stream": stream_info,
+                    "queued": True,
+                    "position": pos,
+                    "message": f"Added '{queued_item['title']}' to Jam (#{pos})",
+                    "stream": queued_item,
+                    "jamQueue": queue_snapshot,
                 })
                 return
 
-            title = data.get("title") or url.split("/")[-1].split("?")[0] or "Video Stream"
-            stream_info = {
-                "url": url,
-                "title": title,
-                "pageUrl": data.get("pageUrl", ""),
-                "timestamp": int(time.time())
-            }
-
-            state_mgr.update_status({
-                "state": "playing",
-                "youtubeRunning": False,
-                "stream": stream_info,
-                "currentTime": 0
-            })
-            state_mgr.add_history(stream_info)
-
-            # Check if receiver is already connected via SSE
-            has_active_receiver = len(state_mgr.sse_queues) > 0
-            if not has_active_receiver:
-                # Wake TV and open receiver in fullscreen kiosk
-                launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
-            else:
-                wake_tv_and_screen()
-                ps.activate_kiosk(KIOSK_DIR)
-
-            state_mgr.broadcast("LOAD", stream_info)
-
+            play_stream_item(stream_info)
             self.send_json({
                 "success": True,
-                "message": f"Casting '{title}' to Glen's MacBook (2)",
-                "stream": stream_info
+                "queued": False,
+                "message": f"Playing '{stream_info['title']}' on {FRIENDLY_NAME}",
+                "stream": stream_info,
+                "jamQueue": state_mgr.get_jam_queue(),
+            })
+            return
+
+        if path == "/api/jam/action":
+            data = self.read_json_body()
+            action = (data.get("action") or "").strip()
+            item_id = (data.get("id") or "").strip()
+            client_id = (data.get("clientId") or "").strip()
+            if not action:
+                self.send_json({"error": "No action provided"}, 400)
+                return
+
+            target = state_mgr.jam_action(action, item_id=item_id, client_id=client_id)
+            if action == "play_now" and target:
+                play_stream_item(target)
+            else:
+                state_mgr.broadcast("JAM_UPDATE", state_mgr.get_jam_queue())
+            self.send_json({
+                "success": True,
+                "action": action,
+                "target": target,
+                "jamQueue": state_mgr.get_jam_queue(),
             })
             return
 
@@ -545,9 +854,15 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 ps.wake_display()
 
             if action in ("skip", "next"):
-                autopilot.skip()
-                state_mgr.broadcast("CONTROL", {"action": "next", "value": None})
-                self.send_json({"success": True, "action": action})
+                if autopilot.page_alive():
+                    autopilot.skip()
+                elif state_mgr.has_jam_items():
+                    nxt = state_mgr.pop_next_jam()
+                    if nxt:
+                        play_stream_item(nxt)
+                else:
+                    state_mgr.broadcast("CONTROL", {"action": "next", "value": None})
+                self.send_json({"success": True, "action": action, "jamQueue": state_mgr.get_jam_queue()})
                 return
 
             if action == "toggle_autoplay":
@@ -569,6 +884,13 @@ class BraveCastHandler(BaseHTTPRequestHandler):
 
         if path == "/api/receiver/status":
             data = self.read_json_body()
+            if data.get("state") == "ended" and state_mgr.has_jam_items():
+                nxt = state_mgr.pop_next_jam()
+                if nxt:
+                    play_stream_item(nxt)
+                    self.send_json({"success": True, "advanced": True})
+                    return
+                data["state"] = "idle"
             state_mgr.update_status(data)
             self.send_json({"success": True})
             return

@@ -463,13 +463,29 @@
       reportStatus();
     }
 
+    function onStreamEnded() {
+      fetch('/api/receiver/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'ended' })
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (!res || !res.advanced) {
+            stopPlayback();
+          }
+        })
+        .catch(() => stopPlayback());
+    }
+
     // Load stream
     function loadStream(stream) {
       currentStream = stream;
       const url = stream.url;
       const title = stream.title || "Video Stream";
+      const sub = stream.addedBy ? `Queued by ${stream.addedBy} • BraveCast Jam` : "StreamCaster Receiver";
 
-      showOsd(`Now Playing: ${title}`, "StreamCaster Receiver");
+      showOsd(`Now Playing: ${title}`, sub);
       ambientScreen.classList.add('hidden-screen');
 
       if (hls) {
@@ -516,7 +532,7 @@
     video.addEventListener('volumechange', () => {
       ctrlMute.textContent = video.muted || video.volume === 0 ? "🔇" : "🔊";
     });
-    video.addEventListener('ended', stopPlayback);
+    video.addEventListener('ended', onStreamEnded);
 
     // Controls
     ctrlPlayPause.addEventListener('click', () => {

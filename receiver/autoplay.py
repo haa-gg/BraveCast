@@ -92,6 +92,86 @@ def video_id_of(url):
     return m.group(1) if m else None
 
 
+def yt_oembed(video_id):
+    """Fetch video title, channel, and thumbnail via YouTube's public oEmbed endpoint (no API key)."""
+    if not video_id:
+        return {}
+    url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        return {
+            "title": data.get("title") or f"YouTube ({video_id})",
+            "channel": data.get("author_name") or "",
+            "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+        }
+    except Exception:
+        return {
+            "title": f"YouTube ({video_id})",
+            "channel": "",
+            "thumbnail": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+        }
+
+
+def yt_search(query, limit=6):
+    """Search YouTube via InnerTube (no API key required) for the Web Remote Jam search bar."""
+    if not query or not query.strip():
+        return []
+    body = {
+        "context": {
+            "client": {"clientName": "WEB", "clientVersion": "2.20250101.00.00", "hl": "en", "gl": "US"}
+        },
+        "query": query.strip(),
+    }
+    req = urllib.request.Request(
+        "https://www.youtube.com/youtubei/v1/search?prettyPrint=false",
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "https://www.youtube.com",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read())
+
+    results = []
+    seen = set()
+
+    def walk(node):
+        if len(results) >= limit:
+            return
+        if isinstance(node, dict):
+            vr = node.get("videoRenderer")
+            if isinstance(vr, dict) and vr.get("videoId"):
+                vid = vr["videoId"]
+                if vid not in seen:
+                    seen.add(vid)
+                    title_runs = vr.get("title", {}).get("runs") or []
+                    title = "".join(r.get("text", "") for r in title_runs) or vr.get("title", {}).get("simpleText", "")
+                    owner_runs = vr.get("ownerText", {}).get("runs") or vr.get("longBylineText", {}).get("runs") or []
+                    channel = "".join(r.get("text", "") for r in owner_runs)
+                    dur = vr.get("lengthText", {}).get("simpleText", "")
+                    results.append({
+                        "videoId": vid,
+                        "title": title or f"YouTube ({vid})",
+                        "channel": channel,
+                        "duration": dur,
+                        "thumbnail": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg",
+                        "url": f"https://www.youtube.com/tv?v={vid}",
+                    })
+                return
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    return results
+
+
 def innertube_next(video_id, exclude):
     """Ask YouTube what it would autoplay after `video_id` (same pick as the 'Up next' video)."""
     exclude = set(exclude or ()) | {video_id}
@@ -129,17 +209,21 @@ def innertube_next(video_id, exclude):
 class YouTubeAutopilot(threading.Thread):
     MAX_FAILED_ADVANCES = 5   # give up if this many "next" launches in a row never start playing
 
-    def __init__(self, cdp_port, is_youtube_running, on_player_state=None):
+    def __init__(self, cdp_port, is_youtube_running, on_player_state=None, pop_jam_next=None, has_jam_items=None):
         super().__init__(daemon=True)
         self.port = cdp_port
         self.is_youtube_running = is_youtube_running
         self.on_player_state = on_player_state
+        self.pop_jam_next = pop_jam_next
+        self.has_jam_items = has_jam_items or (lambda: False)
         self.enabled = os.environ.get("BRAVECAST_AUTOPLAY") != "0"
         self.auto_guest = os.environ.get("BRAVECAST_YT_GUEST") != "0"
 
         self._cdp = None
         self._target_id = None
         self._skip = threading.Event()
+        self._wake = threading.Event()
+        self._next_video_override = None
         self._cmd_queue = deque(maxlen=10)
         self._history = deque(maxlen=40)
         self._current = None
@@ -159,6 +243,26 @@ class YouTubeAutopilot(threading.Thread):
     # --- public API -----------------------------------------------------------
     def skip(self):
         self._skip.set()
+        self._wake.set()
+
+    def play_video(self, video_id):
+        """Immediately navigate the existing YouTube TV tab to `video_id` without killing Brave."""
+        if not video_id:
+            return
+        self._next_video_override = video_id
+        self._skip.set()
+        self._wake.set()
+
+    def is_actively_playing(self):
+        """True if YouTube TV is open in the kiosk and currently playing or loading a video."""
+        now = time.time()
+        if not self.page_alive():
+            return False
+        if self._played_current and (now - self._last_watch < 15.0):
+            return True
+        if self._pending_vid and (now - self._last_advance < 15.0):
+            return True
+        return False
 
     def notify_video(self, video_id):
         """Record a video ID launched externally (e.g. via DIAL cast)."""
@@ -169,12 +273,14 @@ class YouTubeAutopilot(threading.Thread):
             self._max_t = 0.0
             self._ended_since = None
             self._idle_since = None
+            self._last_advance = time.time()
             if video_id not in self._history:
                 self._history.append(video_id)
 
     def control(self, action, value=None):
         """Queue a playback control command (toggle, play, pause, seek, mute, volume) for YouTube TV."""
         self._cmd_queue.append((action, value))
+        self._wake.set()
 
     def status(self):
         return {
@@ -202,8 +308,11 @@ class YouTubeAutopilot(threading.Thread):
                 if time.time() - self._last_err_log > 60 and "Connection refused" not in str(e):
                     print(f"[autoplay] {type(e).__name__}: {e}")
                     self._last_err_log = time.time()
-                time.sleep(1.5)
-            time.sleep(0.8)
+                self._wake.wait(1.5)
+                self._wake.clear()
+                continue
+            self._wake.wait(0.8)
+            self._wake.clear()
 
     @staticmethod
     def _is_youtube_target(t):
@@ -351,55 +460,84 @@ class YouTubeAutopilot(threading.Thread):
             c.call("Page.navigate", {"url": f"https://www.youtube.com/tv?v={vid_to_open}"})
             return
 
-        # 3. Manual skip
+        # 3. Manual skip or direct play_video override
         if self._skip.is_set():
             self._skip.clear()
             self._advance(c, "skip", s)
             return
 
-        # 2. Autoplay safety net: either the video ended without advancing, or the page dropped back to home
-        if not self.enabled or not self._current or now - self._last_advance <= 10:
+        # 2. Jam Queue + Autoplay safety net: either the video ended, or the page dropped back to home
+        has_jam = bool(self.has_jam_items())
+        if (not self.enabled and not has_jam) or not self._current or now - self._last_advance <= (4 if has_jam else 10):
             return
-        if self._failed_advances >= self.MAX_FAILED_ADVANCES:
+        if self._failed_advances >= self.MAX_FAILED_ADVANCES and not has_jam:
             return
 
         if at_end:
             if self._ended_since is None:
                 self._ended_since = now
-            elif now - self._ended_since >= 6.0:
-                self._advance(c, "video ended", s)
+            # If a song is waiting in the Jam Queue, advance after 0.6s (before YouTube TV's 5s random countdown fires!)
+            wait_sec = 0.6 if has_jam else 6.0
+            if now - self._ended_since >= wait_sec:
+                self._advance(c, "jam queue next" if has_jam else "video ended", s)
             return
 
         if not has_video and not on_chooser and self._played_current and (now - self._last_watch < 60):
             if self._idle_since is None:
                 self._idle_since = now
-            elif now - self._idle_since >= 2.5:
-                self._advance(c, "fell back to the home screen", s)
+            wait_sec = 1.2 if has_jam else 2.5
+            if now - self._idle_since >= wait_sec:
+                self._advance(c, "jam queue next" if has_jam else "fell back to the home screen", s)
 
     def _advance(self, c, reason, probe_state=None):
-        target_vid = self._current or self._pending_vid
-        if not target_vid and probe_state:
-            target_vid = probe_state.get("vid") or probe_state.get("searchVid") or video_id_of(probe_state.get("u"))
-        if not target_vid:
+        nxt = None
+        if self._next_video_override:
+            nxt = self._next_video_override
+            self._next_video_override = None
+            self._failed_advances = 0
+            reason = "play_video"
+        elif self.pop_jam_next:
             try:
-                s = json.loads(c.evaluate(PROBE_JS))
-                target_vid = s.get("vid") or s.get("searchVid") or video_id_of(s.get("u"))
-            except Exception:
-                pass
-        if not target_vid:
-            return
-        try:
-            nxt = innertube_next(target_vid, set(self._history) | {target_vid})
-        except Exception as e:
-            print(f"[autoplay] couldn't look up the next video: {e}")
-            self._last_advance = time.time()
-            return
+                jam_item = self.pop_jam_next()
+            except Exception as e:
+                print(f"[autoplay] jam pop failed: {e}")
+                jam_item = None
+            if jam_item:
+                if jam_item.get("handled_externally"):
+                    self._last_advance = time.time()
+                    return
+                nxt = jam_item.get("videoId")
+                if nxt:
+                    self._failed_advances = 0
+                    reason = f"jam ({jam_item.get('addedBy', 'Guest')})"
+
+        target_vid = self._current or self._pending_vid
         if not nxt:
-            print("[autoplay] no next video found")
-            self._last_advance = time.time()
-            return
+            if not self.enabled and reason != "skip":
+                return
+            if not target_vid and probe_state:
+                target_vid = probe_state.get("vid") or probe_state.get("searchVid") or video_id_of(probe_state.get("u"))
+            if not target_vid:
+                try:
+                    s = json.loads(c.evaluate(PROBE_JS))
+                    target_vid = s.get("vid") or s.get("searchVid") or video_id_of(s.get("u"))
+                except Exception:
+                    pass
+            if not target_vid:
+                return
+            try:
+                nxt = innertube_next(target_vid, set(self._history) | {target_vid})
+            except Exception as e:
+                print(f"[autoplay] couldn't look up the next video: {e}")
+                self._last_advance = time.time()
+                return
+            if not nxt:
+                print("[autoplay] no next video found")
+                self._last_advance = time.time()
+                return
         print(f"[autoplay] {reason}: {target_vid} -> {nxt}")
-        self._history.append(nxt)
+        if nxt not in self._history:
+            self._history.append(nxt)
         self._current = nxt
         self._pending_vid = nxt
         self._played_current = False

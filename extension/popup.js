@@ -116,23 +116,23 @@ mBtnFwd.addEventListener('click', () => sendControl('seek', 'fwd'));
 mBtnStop.addEventListener('click', () => sendControl('stop'));
 
 // Cast action
-function castUrl(url, title, btnElement) {
+function castUrl(url, title, btnElement, mode = 'auto', defaultLabel = "🚀 Cast Now") {
   if (btnElement) {
-    btnElement.textContent = "⏳ Beaming...";
+    btnElement.textContent = "⏳ Sending...";
     btnElement.disabled = true;
   }
 
   fetch(`${targetHost}/api/cast`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: url, title: title })
+    body: JSON.stringify({ url: url, title: title, mode: mode, addedBy: "Extension" })
   })
   .then(r => r.json())
   .then(res => {
     if (btnElement) {
-      btnElement.textContent = "✅ Casted!";
+      btnElement.textContent = res.queued ? `✅ Queued (#${res.position})` : "✅ Playing!";
       setTimeout(() => {
-        btnElement.textContent = "🚀 Cast to Glen's MacBook";
+        btnElement.textContent = defaultLabel;
         btnElement.disabled = false;
       }, 2000);
     }
@@ -180,24 +180,35 @@ function renderStreams() {
         </div>
         <div class="btn-row">
           <button class="btn-beam" data-url="${encodeURIComponent(stream.url)}" data-title="${encodeURIComponent(stream.title)}">
-            🚀 Cast to Glen's MacBook
+            ➕ Jam Queue
+          </button>
+          <button class="btn-local btn-now" data-url="${encodeURIComponent(stream.url)}" data-title="${encodeURIComponent(stream.title)}">
+            🚀 Now
           </button>
           <button class="btn-local" data-url="${encodeURIComponent(stream.url)}">
-            Play Local
+            Local
           </button>
         </div>
       `;
 
-      // Wire beam button
+      // Wire Jam button
       const beamBtn = card.querySelector('.btn-beam');
       beamBtn.addEventListener('click', () => {
-        castUrl(stream.url, stream.title, beamBtn);
+        castUrl(stream.url, stream.title, beamBtn, 'queue', '➕ Jam Queue');
+      });
+
+      // Wire Play Now button
+      const nowBtn = card.querySelector('.btn-now');
+      nowBtn.addEventListener('click', () => {
+        castUrl(stream.url, stream.title, nowBtn, 'now', '🚀 Now');
       });
 
       // Wire local player button
-      const localBtn = card.querySelector('.btn-local');
-      localBtn.addEventListener('click', () => {
-        chrome.tabs.create({ url: chrome.runtime.getURL(`player.html?url=${encodeURIComponent(stream.url)}`) });
+      const localBtns = card.querySelectorAll('.btn-local:not(.btn-now)');
+      localBtns.forEach(localBtn => {
+        localBtn.addEventListener('click', () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL(`player.html?url=${encodeURIComponent(stream.url)}`) });
+        });
       });
 
       streamsContainer.appendChild(card);
