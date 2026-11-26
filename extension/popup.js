@@ -173,13 +173,25 @@ function castUrl(url, title, btnElement, mode = 'auto', defaultLabel = "🚀 Cas
   });
 }
 
+let activeTabIsDrm = false;
+
 // Render streams
 function renderStreams() {
   chrome.storage.local.get({ streams: [] }, (res) => {
     const streams = res.streams || [];
 
     if (streams.length === 0) {
-      streamsContainer.innerHTML = `
+      streamsContainer.innerHTML = activeTabIsDrm
+        ? `
+        <div class="empty-state">
+          <div class="empty-icon">📦</div>
+          <div class="empty-text">
+            Prime Video uses Widevine DRM.<br>
+            Click <strong>Cast Prime Video Page to TV</strong> below!
+          </div>
+        </div>
+      `
+        : `
         <div class="empty-state">
           <div class="empty-icon">🎬</div>
           <div class="empty-text">
@@ -250,13 +262,27 @@ function renderStreams() {
   });
 }
 
-renderStreams();
+let castTabLabel = '🌐 Cast Current Web Page to TV';
+
+chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  const tab = tabs && tabs[0];
+  const u = (tab && tab.url) ? tab.url.toLowerCase() : '';
+  if (/(?:^|\/\/|[^a-z0-9])(amazon\.[a-z.]+|primevideo\.com)\//i.test(u)) {
+    activeTabIsDrm = true;
+    castTabLabel = '📦 Cast Prime Video Page to TV';
+    castTabBtn.querySelector('span').textContent = castTabLabel;
+  } else if (u.includes('movy.sx')) {
+    castTabLabel = '🎬 Cast Movy.sx Page to TV';
+    castTabBtn.querySelector('span').textContent = castTabLabel;
+  }
+  renderStreams();
+});
 
 // Cast current web page tab directly (opens in Brave Kiosk with Cinema Auto-Maximize)
 castTabBtn.addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab && tab.url) {
-    castUrl(tab.url, tab.title || "Web Page", castTabBtn, 'now', '🌐 Cast Current Web Page to TV', {
+    castUrl(tab.url, tab.title || "Web Page", castTabBtn, 'now', castTabLabel, {
       source: 'webpage',
       pageUrl: tab.url
     });

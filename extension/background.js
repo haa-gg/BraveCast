@@ -31,12 +31,25 @@ function isLikelyStreamUrl(url) {
   );
 }
 
+function isDrmPlatformUrl(url, referer = "") {
+  const combined = (url + " " + referer).toLowerCase();
+  // Amazon / Prime Video uses Widevine-encrypted MPEG-DASH (.mpd + _video_/_audio_ mp4 chunks)
+  if (
+    /(?:^|\/\/|[^a-z0-9])(amazon\.[a-z.]+|primevideo\.com|pv-cdn\.net|atv-ps\.amazon\.com)\//i.test(combined) &&
+    (/\.mpd(\?|$)/i.test(url) || /_(?:video|audio)_\d+\.mp4(\?|$)/i.test(url) || /manifest\.mpd/i.test(url))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function recordStream(details, streamTypeHint = "") {
   const url = details.url;
   if (!url || url.startsWith('chrome-extension://') || url.includes(':8099/')) return;
   if (isNoiseUrl(url)) return;
 
   const referer = details.documentUrl || (details.initiator ? details.initiator + '/' : '');
+  if (isDrmPlatformUrl(url, referer)) return;
 
   const saveWithTab = (tab) => {
     const tabTitle = (tab && tab.title) ? tab.title : "";

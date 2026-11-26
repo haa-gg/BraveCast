@@ -111,18 +111,24 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
 
   var host = (location.hostname || '').toLowerCase();
   var isMovy = host === 'movy.sx' || host.endsWith('.movy.sx');
+  var isAmazon = /(?:^|\\.)amazon\\.[a-z.]+$/i.test(host) || /(?:^|\\.)primevideo\\.com$/i.test(host);
+  var isManagedApp = isMovy || isAmazon;
   var movyShell = isMovy ? document.getElementById('vp-shell') : null;
+  var amazonPlayer = isAmazon ? document.getElementById('dv-web-player') : null;
 
   function pickVideo(root) {
     if (!root) return null;
     if (isMovy) {
       return movyShell ? movyShell.querySelector('video') : null;
     }
+    if (isAmazon) {
+      return amazonPlayer ? amazonPlayer.querySelector('video') : null;
+    }
     return root.querySelector('video');
   }
 
   var v = pickVideo(document);
-  if (!v && !isMovy) {
+  if (!v && !isManagedApp) {
     try {
       var frames = document.querySelectorAll('iframe');
       for (var i = 0; i < frames.length; i++) {
@@ -136,7 +142,7 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
 
   var maximizedIframe = false;
   try {
-    var iframes = isMovy ? [] : Array.from(document.querySelectorAll('iframe')).filter(function(f) {
+    var iframes = isManagedApp ? [] : Array.from(document.querySelectorAll('iframe')).filter(function(f) {
       var r = f.getBoundingClientRect();
       var src = (f.src || '').toLowerCase();
       if (src.indexOf('doubleclick') !== -1 || src.indexOf('googlesyndication') !== -1 || src.indexOf('ad') === 0) return false;
@@ -170,7 +176,13 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
       movyShell.style.setProperty('z-index', '2147483647', 'important');
       document.documentElement.style.setProperty('overflow', 'hidden', 'important');
       if (document.body) document.body.style.setProperty('overflow', 'hidden', 'important');
-    } else if (!isMovy && v && !v.dataset.bcMax && window === window.top) {
+    } else if (isAmazon && amazonPlayer && !amazonPlayer.dataset.bcMax) {
+      // Keep #dv-web-player above Amazon page chrome while preserving ATVWebPlayerSDK overlays/subtitles
+      amazonPlayer.dataset.bcMax = '1';
+      amazonPlayer.style.setProperty('z-index', '2147483647', 'important');
+      document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+      if (document.body) document.body.style.setProperty('overflow', 'hidden', 'important');
+    } else if (!isManagedApp && v && !v.dataset.bcMax && window === window.top) {
       var vr = v.getBoundingClientRect();
       if (vr.width > 200 && vr.width < window.innerWidth * 0.92) {
         v.dataset.bcMax = '1';
@@ -186,7 +198,7 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
     }
   } catch (e) {}
 
-  if (!isMovy && (!v || (v.paused && (v.currentTime || 0) < 0.5))) {
+  if (!isManagedApp && (!v || (v.paused && (v.currentTime || 0) < 0.5))) {
     try {
       var playBtn = document.querySelector('.vjs-big-play-button, .jw-icon-display, .plyr__control--overlaid, button[aria-label*="Play" i], .play-button');
       if (playBtn && !playBtn.dataset.bcClicked) {
@@ -200,6 +212,14 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
       if (movyPlay && !movyPlay.dataset.bcClicked) {
         movyPlay.dataset.bcClicked = '1';
         movyPlay.click();
+      }
+    } catch (e) {}
+  } else if (isAmazon && amazonPlayer && v && v.paused && (v.currentTime || 0) < 0.5) {
+    try {
+      var amzPlay = amazonPlayer.querySelector('#atvwebplayersdk-play-pause-button');
+      if (amzPlay && !amzPlay.dataset.bcClicked) {
+        amzPlay.dataset.bcClicked = '1';
+        amzPlay.click();
       }
     } catch (e) {}
   }
@@ -525,7 +545,7 @@ class YouTubeAutopilot(threading.Thread):
                                               "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})
             time.sleep(0.08)
 
-    _PICK_VIDEO_JS = "(document.querySelector('#vp-shell video') || document.querySelector('video'))"
+    _PICK_VIDEO_JS = "(document.querySelector('#dv-web-player video') || document.querySelector('#vp-shell video') || document.querySelector('video'))"
 
     def _run_queued_controls(self, c):
         pv = self._PICK_VIDEO_JS
@@ -553,17 +573,17 @@ class YouTubeAutopilot(threading.Thread):
                 elif action == "fullscreen":
                     c.evaluate(
                         "(function(){"
-                        " var btn = document.querySelector('#ButtonFullscreen');"
+                        " var btn = document.querySelector('#ButtonFullscreen, #atvwebplayersdk-fullscreen-toggle-button');"
                         " if (btn) { btn.click(); return; }"
                         " if (document.fullscreenElement) { document.exitFullscreen().catch(function(){}); return; }"
-                        " var target = document.querySelector('#vp-shell') || document.querySelector('video') || document.documentElement;"
+                        " var target = document.querySelector('#dv-web-player, #vp-shell') || document.querySelector('video') || document.documentElement;"
                         " if (target && target.requestFullscreen) target.requestFullscreen().catch(function(){});"
                         "})()"
                     )
                 elif action == "next":
                     c.evaluate(
                         "(function(){"
-                        " var nxt = document.querySelector('#vp-shell a[href*=\"/tv/\"][href*=\"play=true\"]');"
+                        " var nxt = document.querySelector('#vp-shell a[href*=\"/tv/\"][href*=\"play=true\"], #atvwebplayersdk-next-episode-button');"
                         " if (nxt) nxt.click();"
                         "})()"
                     )
@@ -660,10 +680,15 @@ class YouTubeAutopilot(threading.Thread):
                     })
 
             # If a Web Cinema video finishes and items are waiting in the Jam Queue, advance!
-            if (ended or (has_video and d > 30 and (d - t) <= 2.0 and paused)) and self.has_jam_items() and self.pop_jam_next:
-                jam_item = self.pop_jam_next()
-                if jam_item and not jam_item.get("handled_externally") and jam_item.get("videoId"):
-                    c.call("Page.navigate", {"url": f"https://www.youtube.com/tv?v={jam_item['videoId']}"})
+            # Guard against short pre-roll ads (e.g. Amazon free-with-ads 60s ad transitioning into the feature).
+            cur_url = (s.get("u") or "").lower()
+            is_amazon_url = "amazon." in cur_url or "primevideo." in cur_url
+            is_finished = ended or (has_video and d > 30 and (d - t) <= 2.0 and paused)
+            if is_finished and (not is_amazon_url or d > 180):
+                if self.has_jam_items() and self.pop_jam_next:
+                    jam_item = self.pop_jam_next()
+                    if jam_item and not jam_item.get("handled_externally") and jam_item.get("videoId"):
+                        c.call("Page.navigate", {"url": f"https://www.youtube.com/tv?v={jam_item['videoId']}"})
         finally:
             if video_cdp is not c:
                 video_cdp.close()

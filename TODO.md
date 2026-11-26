@@ -10,6 +10,11 @@
     - Updated Web Cinema autopilot (`receiver/autoplay.py`) to target `#vp-shell video`, keep `#vp-shell` above subtitles, ignore background `youtube-nocookie.com` trailer iframes, and support `fullscreen` + TV `next` episode controls.
     - Updated StreamCaster (`extension/background.js`, `extension/popup.js`) to filter out `movy.sx` `/videos/intro.mp4` and fMP4 `init-*.mp4` segments so only real `.m3u8` streams appear.
 
-- [ ] **2. Amazon Video (`amazon.com` / Prime Video) Support**
-  - Investigate how Amazon Prime Video playback works in Brave Kiosk (Widevine DRM support, persistent signed-in profile vs dedicated kiosk profile, playback controls via CDP, and Web Remote / StreamCaster integration).
-  - Add Amazon Video to the list of streamable apps in BraveCast if feasible.
+- [x] **2. Amazon Video (`amazon.com` / Prime Video) Support**
+  - **How Amazon Video works**: Renders directly in the main `amazon.com` DOM (no `<iframe>`) inside `div#dv-web-player.dv-player-fullscreen` (`ATVWebPlayerSDK`). Streams **Widevine DRM-encrypted MPEG-DASH** (`_corrected.mpd` + separated `*_video_*.mp4` / `*_audio_*.mp4` chunks via `GetVodPlaybackResources` / `GetWidevineLicense`) into a `blob:` MSE `<video>`. Free-with-ads titles (60s pre-roll ad) and `?autoplay=trailer` play signed-out; Prime-only titles require signing in once inside the persistent `Brave-Kiosk` profile. Detail pages `/gp/video/detail/<ID>?autoplay=1` auto-launch playback.
+  - **Implemented in BraveCast**:
+    - Added `ensure_widevine_opted_in()` in `receiver/server.py` to set `brave.widevine_opted_in = true` in `Brave-Kiosk/Local State` before launching Web Cinema so Widevine DRM works without a hidden kiosk prompt.
+    - Added `normalize_amazon_url()` in `receiver/server.py` to append `?autoplay=1` to `amazon.*` / `primevideo.com` detail URLs, plus `amazon_search()`, `GET /api/amazon/search`, and `POST /api/amazon`.
+    - Added **Prime Video** (`📦 Prime Video`) to Streamable Apps and the Search Source toggle in `receiver/remote.html`.
+    - Updated Web Cinema autopilot (`receiver/autoplay.py`) to target `#dv-web-player video`, preserve `ATVWebPlayerSDK` overlay/subtitles, wire `#atvwebplayersdk-fullscreen-toggle-button` / `#atvwebplayersdk-next-episode-button`, and guard Jam Queue auto-advance against short `< 180s` pre-roll ads on Amazon.
+    - Updated StreamCaster (`extension/background.js`, `extension/popup.js`) to skip Widevine-encrypted Amazon DASH `.mpd` / `_video_*.mp4` / `_audio_*.mp4` chunks and prompt 1-click **Cast Prime Video Page to TV** instead.

@@ -399,6 +399,12 @@
       color: #7dd3fc;
     }
 
+    .btn-launch.amazon {
+      background: rgba(0, 168, 225, 0.16);
+      border: 1px solid rgba(0, 168, 225, 0.45);
+      color: #67e8f9;
+    }
+
     /* Now Playing Card */
     .now-playing {
       display: flex;
@@ -723,6 +729,7 @@
         <div class="source-tabs" id="source-tabs">
           <button class="source-pill active" data-source="youtube">📺 YouTube</button>
           <button class="source-pill" data-source="movy">🎬 Movy.sx</button>
+          <button class="source-pill" data-source="amazon">📦 Prime</button>
         </div>
       </div>
       <div class="input-row">
@@ -751,6 +758,10 @@
         <button class="btn-launch movy" id="movy-btn">
           <span>🎬</span>
           <span>Movy.sx</span>
+        </button>
+        <button class="btn-launch amazon" id="amazon-btn">
+          <span>📦</span>
+          <span>Prime Video</span>
         </button>
         <button class="btn-launch" id="autoplay-toggle-btn" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc;">
           <span>♾️</span>
@@ -850,6 +861,7 @@
     const sourceTabs = document.getElementById('source-tabs');
     const ytBtn = document.getElementById('yt-btn');
     const movyBtn = document.getElementById('movy-btn');
+    const amazonBtn = document.getElementById('amazon-btn');
     const statusTag = document.getElementById('status-tag');
     const nowTitle = document.getElementById('now-title');
     const nowAddedBy = document.getElementById('now-added-by');
@@ -964,9 +976,13 @@
       if (!pill) return;
       searchSource = pill.dataset.source;
       sourceTabs.querySelectorAll('.source-pill').forEach(p => p.classList.toggle('active', p === pill));
-      urlInput.placeholder = searchSource === 'movy'
-        ? 'Search Movy.sx movies & shows or paste URL...'
-        : 'Search YouTube or paste any URL...';
+      if (searchSource === 'movy') {
+        urlInput.placeholder = 'Search Movy.sx movies & shows or paste URL...';
+      } else if (searchSource === 'amazon') {
+        urlInput.placeholder = 'Search Prime Video or paste amazon.com/gp/video URL...';
+      } else {
+        urlInput.placeholder = 'Search YouTube or paste any URL...';
+      }
       const q = urlInput.value.trim();
       if (q && !isLikelyUrl(q)) {
         runSearch(q, false);
@@ -976,9 +992,56 @@
     function runSearch(query, playFirstImmediately = false) {
       if (searchSource === 'movy') {
         searchMovy(query, playFirstImmediately);
+      } else if (searchSource === 'amazon') {
+        searchAmazon(query, playFirstImmediately);
       } else {
         searchYouTube(query, playFirstImmediately);
       }
+    }
+
+    function searchAmazon(query, playFirstImmediately = false) {
+      searchResultsBox.classList.add('open');
+      searchStatusLabel.textContent = `Searching Prime Video for "${query}"...`;
+      searchResultsList.innerHTML = '';
+
+      fetch('/api/amazon/search?q=' + encodeURIComponent(query))
+        .then(r => r.json())
+        .then(data => {
+          const results = data.results || [];
+          if (results.length === 0) {
+            searchStatusLabel.textContent = 'No Prime Video results found';
+            return;
+          }
+          if (playFirstImmediately) {
+            const top = results[0];
+            submitStream({
+              url: top.url,
+              title: top.title,
+              channel: top.subtitle || 'Prime Video',
+              source: 'webpage'
+            }, 'now');
+            searchResultsBox.classList.remove('open');
+            urlInput.value = '';
+            return;
+          }
+          searchStatusLabel.textContent = `Prime Video Results for "${query}"`;
+          searchResultsList.innerHTML = results.map(item => `
+            <div class="search-item">
+              <div class="search-thumb" style="display:flex;align-items:center;justify-content:center;font-size:18px;">📦</div>
+              <div class="search-meta">
+                <div class="search-title">${escHtml(item.title)}</div>
+                <div class="search-sub">${escHtml(item.subtitle || 'Prime Video')}</div>
+              </div>
+              <div class="search-actions">
+                <button class="btn-mini jam" data-url="${escHtml(item.url)}" data-title="${escHtml(item.title)}" data-channel="Prime Video" data-source="webpage" data-mode="queue">+ Jam</button>
+                <button class="btn-mini now" data-url="${escHtml(item.url)}" data-title="${escHtml(item.title)}" data-channel="Prime Video" data-source="webpage" data-mode="now">▶️</button>
+              </div>
+            </div>
+          `).join('');
+        })
+        .catch(() => {
+          searchStatusLabel.textContent = 'Prime Video search failed';
+        });
     }
 
     function searchMovy(query, playFirstImmediately = false) {
@@ -1199,6 +1262,19 @@
       })
         .then(() => {
           movyBtn.innerHTML = "<span>🎬</span><span>Movy.sx</span>";
+          fetchStatus();
+        });
+    });
+
+    amazonBtn.addEventListener('click', () => {
+      amazonBtn.textContent = "⏳ Launching...";
+      fetch('/api/amazon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+        .then(() => {
+          amazonBtn.innerHTML = "<span>📦</span><span>Prime Video</span>";
           fetchStatus();
         });
     });

@@ -315,6 +315,34 @@ def wake_tv_and_screen():
     ps.wake_display()
 
 
+def ensure_widevine_opted_in(profile_dir):
+    """Ensure Brave Kiosk's Local State opts into Widevine DRM so Prime Video plays without a hidden prompt."""
+    if not profile_dir:
+        return
+    try:
+        os.makedirs(profile_dir, exist_ok=True)
+        local_state_path = os.path.join(profile_dir, "Local State")
+        data = {}
+        if os.path.exists(local_state_path):
+            with open(local_state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
+        brave_cfg = data.get("brave")
+        if not isinstance(brave_cfg, dict):
+            brave_cfg = {}
+            data["brave"] = brave_cfg
+        if brave_cfg.get("widevine_opted_in") is True:
+            return
+        brave_cfg["widevine_opted_in"] = True
+        tmp_path = local_state_path + ".bc.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp_path, local_state_path)
+    except Exception as e:
+        print(f"[widevine] could not update Local State: {e}")
+
+
 def launch_brave_kiosk(url, is_youtube=True):
     """Launch Brave in dedicated, guaranteed fullscreen kiosk mode"""
     ps.ensure_display_env()
@@ -323,6 +351,8 @@ def launch_brave_kiosk(url, is_youtube=True):
         # 1. Terminate any previous Kiosk instance so flags like --kiosk apply fresh
         ps.kill_kiosk(KIOSK_DIR)
         time.sleep(0.3)
+        if not is_youtube:
+            ensure_widevine_opted_in(KIOSK_DIR)
 
         brave_bin = ps.find_browser()
         cmd = [
@@ -439,6 +469,89 @@ def movy_search(query, limit=8):
     return results
 
 
+AMAZON_HOST_RE = re.compile(r"^(?:[\w-]+\.)?(?:amazon\.[a-z.]+|primevideo\.com)$", re.I)
+AMAZON_DETAIL_PATH_RE = re.compile(r"^(?:/[a-z]{2}(?:-[a-z]{2})?)?(?:/gp/video)?/detail/([A-Z0-9]{10,})(?:/.*)?$", re.I)
+AMAZON_SEARCH_LINK_RE = re.compile(r'href="(/gp/video/detail/([A-Z0-9]{10,})[^"]*)"[^>]*?(?:aria-label="([^"]+)"|title="([^"]+)")?', re.I)
+
+
+def normalize_amazon_url(url):
+    """Ensure Amazon / Prime Video detail URLs include ?autoplay=1 so Brave Kiosk opens the player directly."""
+    if not url:
+        return url
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if not AMAZON_HOST_RE.match(host):
+            return url
+        if not AMAZON_DETAIL_PATH_RE.match(parsed.path or ""):
+            return url
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        if "autoplay" not in qs:
+            qs["autoplay"] = ["1"]
+        new_query = urlencode(qs, doseq=True)
+        scheme = "https" if parsed.scheme in ("http", "https", "") else parsed.scheme
+        return urlunparse((scheme, parsed.netloc, parsed.path, parsed.params, new_query, ""))
+    except Exception:
+        return url
+
+
+def amazon_search(query, limit=8):
+    """
+    Search Amazon Prime Video catalog when HTML results are available,
+    falling back to a direct Prime Video TV search link if bot-gated.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    search_url = f"https://www.amazon.com/gp/video/search?ie=UTF8&phrase={quote(q)}"
+    results = []
+    try:
+        req = urllib.request.Request(
+            search_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            html = r.read(350000).decode("utf-8", errors="ignore")
+        seen = set()
+        for m in AMAZON_SEARCH_LINK_RE.finditer(html):
+            asin = m.group(2)
+            if asin in seen:
+                continue
+            title = (m.group(3) or m.group(4) or "").strip()
+            if not title or len(title) < 2:
+                continue
+            seen.add(asin)
+            results.append({
+                "id": asin,
+                "title": title,
+                "subtitle": "Prime Video • Autoplay",
+                "thumbnail": "",
+                "url": f"https://www.amazon.com/gp/video/detail/{asin}?autoplay=1",
+                "source": "webpage",
+            })
+            if len(results) >= limit:
+                break
+    except Exception:
+        pass
+
+    if not results:
+        results.append({
+            "id": "",
+            "title": f"Search Prime Video on TV: {q}",
+            "subtitle": "Opens Prime Video search results in Brave Kiosk",
+            "thumbnail": "",
+            "url": search_url,
+            "source": "webpage",
+        })
+    return results
+
+
 def build_stream_item(data):
     url = (data.get("url") or "").strip()
     vid = (data.get("videoId") or "").strip()
@@ -483,7 +596,7 @@ def build_stream_item(data):
     )
     source = "stream" if (is_direct_stream and explicit_source != "webpage") else "webpage"
     if source == "webpage":
-        url = normalize_movy_url(url)
+        url = normalize_amazon_url(normalize_movy_url(url))
 
     title = (data.get("title") or "").strip()
     if not title:
@@ -911,6 +1024,19 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(e), "results": []}, 500)
             return
 
+        if path == "/api/amazon/search":
+            params = parse_qs(parsed.query)
+            q = (params.get("q") or [""])[0].strip()
+            if not q:
+                self.send_json({"results": []})
+                return
+            try:
+                results = amazon_search(q, limit=8)
+                self.send_json({"results": results})
+            except Exception as e:
+                self.send_json({"error": str(e), "results": []}, 500)
+            return
+
         if path == "/api/events":
             self.send_response(200)
             self.send_cors_headers()
@@ -1029,6 +1155,19 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 "stream": {"url": url, "title": "Movy.sx", "source": "webpage"}
             })
             self.send_json({"success": True, "message": "Movy.sx opened in Brave Kiosk"})
+            return
+
+        if path == "/api/amazon":
+            data = self.read_json_body()
+            raw_url = (data.get("url") or "https://www.amazon.com/gp/video/storefront").strip()
+            url = normalize_amazon_url(raw_url) or "https://www.amazon.com/gp/video/storefront"
+            launch_brave_kiosk(url, is_youtube=False)
+            state_mgr.update_status({
+                "state": "playing",
+                "youtubeRunning": False,
+                "stream": {"url": url, "title": "Amazon Prime Video", "source": "webpage"}
+            })
+            self.send_json({"success": True, "message": "Prime Video opened in Brave Kiosk"})
             return
 
         if path in ("/api/cast", "/api/jam/add"):
