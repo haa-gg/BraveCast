@@ -18,7 +18,7 @@ import platform
 import subprocess
 import platform_support as ps
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, unquote, urljoin, quote
+from urllib.parse import urlparse, parse_qs, unquote, urljoin, quote, urlencode, urlunparse
 import urllib.request
 try:
     from autoplay import YouTubeAutopilot, yt_oembed, yt_search
@@ -229,12 +229,8 @@ class ReceiverState:
                 new_stream = data["stream"]
                 old_stream = self.status.get("stream")
                 if isinstance(new_stream, dict) and isinstance(old_stream, dict):
-                    # Preserve Jam metadata (addedBy, channel, thumbnail) when autopilot updates progress on the same video
-                    same_yt = (
-                        new_stream.get("source") == "youtube"
-                        and old_stream.get("url") == new_stream.get("url")
-                    )
-                    if same_yt:
+                    # Preserve Jam metadata (addedBy, channel, thumbnail) when autopilot updates progress on the same item
+                    if old_stream.get("url") == new_stream.get("url"):
                         for meta_k in ("addedBy", "channel", "thumbnail", "videoId"):
                             if meta_k in old_stream and meta_k not in new_stream:
                                 new_stream[meta_k] = old_stream[meta_k]
@@ -363,6 +359,86 @@ def launch_brave_kiosk(url, is_youtube=True):
         print(f"Error launching Brave Kiosk: {e}")
 
 
+MOVY_WATCH_PATH_RE = re.compile(r"^/(movie/\d+|tv/\d+(?:/\d+/\d+)?)/?$")
+
+
+def normalize_movy_url(url):
+    """Ensure Movy.sx movie/TV watch URLs include ?play=true so Brave Kiosk auto-launches the player."""
+    if not url:
+        return url
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host != "movy.sx" and not host.endswith(".movy.sx"):
+            return url
+        if not MOVY_WATCH_PATH_RE.match(parsed.path or ""):
+            return url
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        if "play" not in qs:
+            qs["play"] = ["true"]
+        new_query = urlencode(qs, doseq=True)
+        netloc = "www.movy.sx" if host == "movy.sx" else parsed.netloc
+        scheme = "https" if parsed.scheme in ("http", "https", "") else parsed.scheme
+        return urlunparse((scheme, netloc, parsed.path.rstrip("/"), parsed.params, new_query, ""))
+    except Exception:
+        return url
+
+
+def movy_search(query, limit=8):
+    """Search Movy.sx catalog via its public TMDB proxy (db.wecollege.net)."""
+    if not query or not query.strip():
+        return []
+    url = f"https://db.wecollege.net/3/search/multi?language=en&page=1&query={quote(query.strip())}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Origin": "https://www.movy.sx",
+            "Referer": "https://www.movy.sx/",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read())
+
+    results = []
+    for item in data.get("results") or []:
+        mtype = item.get("media_type")
+        if mtype not in ("movie", "tv"):
+            continue
+        tmdb_id = item.get("id")
+        if not tmdb_id:
+            continue
+        title = (item.get("title") or item.get("name") or "").strip()
+        if not title:
+            continue
+        date_str = item.get("release_date") or item.get("first_air_date") or ""
+        year = date_str[:4] if len(date_str) >= 4 else ""
+        vote = item.get("vote_average")
+        rating = f"{float(vote):.1f}" if isinstance(vote, (int, float)) and vote > 0 else ""
+        poster = item.get("poster_path")
+        thumb = (
+            f"https://wsrv.nl/?url=https://image.tmdb.org/t/p/w342{poster}&output=webp&q=50"
+            if poster else "https://www.movy.sx/no-poster.png"
+        )
+        results.append({
+            "id": tmdb_id,
+            "mediaType": mtype,
+            "title": title,
+            "year": year,
+            "rating": rating,
+            "thumbnail": thumb,
+            "url": f"https://www.movy.sx/{mtype}/{tmdb_id}?play=true",
+            "source": "webpage",
+        })
+        if len(results) >= limit:
+            break
+    return results
+
+
 def build_stream_item(data):
     url = (data.get("url") or "").strip()
     vid = (data.get("videoId") or "").strip()
@@ -406,6 +482,8 @@ def build_stream_item(data):
         or bool(DIRECT_MEDIA_RE.search(url))
     )
     source = "stream" if (is_direct_stream and explicit_source != "webpage") else "webpage"
+    if source == "webpage":
+        url = normalize_movy_url(url)
 
     title = (data.get("title") or "").strip()
     if not title:
@@ -820,6 +898,19 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(e), "results": []}, 500)
             return
 
+        if path == "/api/movy/search":
+            params = parse_qs(parsed.query)
+            q = (params.get("q") or [""])[0].strip()
+            if not q:
+                self.send_json({"results": []})
+                return
+            try:
+                results = movy_search(q, limit=8)
+                self.send_json({"results": results})
+            except Exception as e:
+                self.send_json({"error": str(e), "results": []}, 500)
+            return
+
         if path == "/api/events":
             self.send_response(200)
             self.send_cors_headers()
@@ -927,6 +1018,19 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             self.send_json({"success": True, "message": "YouTube TV opened in Brave Kiosk"})
             return
 
+        if path == "/api/movy":
+            data = self.read_json_body()
+            raw_url = (data.get("url") or "https://www.movy.sx/").strip()
+            url = normalize_movy_url(raw_url) or "https://www.movy.sx/"
+            launch_brave_kiosk(url, is_youtube=False)
+            state_mgr.update_status({
+                "state": "playing",
+                "youtubeRunning": False,
+                "stream": {"url": url, "title": "Movy.sx", "source": "webpage"}
+            })
+            self.send_json({"success": True, "message": "Movy.sx opened in Brave Kiosk"})
+            return
+
         if path in ("/api/cast", "/api/jam/add"):
             data = self.read_json_body()
             url = (data.get("url") or "").strip()
@@ -1017,6 +1121,8 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                     nxt = state_mgr.pop_next_jam()
                     if nxt:
                         play_stream_item(nxt)
+                elif autopilot.web_cinema_alive():
+                    autopilot.control("next", None)
                 else:
                     state_mgr.broadcast("CONTROL", {"action": "next", "value": None})
                 self.send_json({"success": True, "action": action, "jamQueue": state_mgr.get_jam_queue()})
@@ -1032,7 +1138,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                     launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
                 state_mgr.update_status({"state": "idle", "youtubeRunning": False, "stream": None})
 
-            if action in ("toggle", "play", "pause", "seek", "mute", "volume"):
+            if action in ("toggle", "play", "pause", "seek", "mute", "volume", "fullscreen"):
                 autopilot.control(action, value)
 
             state_mgr.broadcast("CONTROL", {"action": action, "value": value})

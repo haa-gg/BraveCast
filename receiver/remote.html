@@ -336,15 +336,46 @@
       color: #cbd5e1;
     }
 
-    /* Quick Launch Row */
+    /* Search Source Switcher */
+    .source-tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    .source-pill {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .source-pill.active {
+      background: rgba(168, 85, 247, 0.25);
+      border-color: rgba(168, 85, 247, 0.6);
+      color: #f3e8ff;
+    }
+
+    .search-thumb.poster {
+      width: 38px;
+      height: 54px;
+      object-fit: cover;
+    }
+
+    /* Quick Launch Apps */
     .quick-launch-row {
       display: flex;
-      gap: 10px;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .btn-launch {
       flex: 1;
-      padding: 10px;
+      min-width: 110px;
+      padding: 10px 8px;
       border-radius: 12px;
       border: none;
       font-weight: 700;
@@ -360,6 +391,12 @@
       background: rgba(239, 68, 68, 0.16);
       border: 1px solid rgba(239, 68, 68, 0.4);
       color: #fca5a5;
+    }
+
+    .btn-launch.movy {
+      background: rgba(56, 189, 248, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #7dd3fc;
     }
 
     /* Now Playing Card */
@@ -682,18 +719,21 @@
     <!-- Search & Add to Jam Card -->
     <div class="card cast-form">
       <div class="cast-header">
-        <label>Search YouTube or Paste Link</label>
-        <span class="jam-mode-tag">🎵 Fair-Share Jam</span>
+        <label id="search-box-label">Search or Paste Link</label>
+        <div class="source-tabs" id="source-tabs">
+          <button class="source-pill active" data-source="youtube">📺 YouTube</button>
+          <button class="source-pill" data-source="movy">🎬 Movy.sx</button>
+        </div>
       </div>
       <div class="input-row">
-        <input type="text" id="stream-url-input" placeholder="Search song/video or paste URL..." autocomplete="off">
+        <input type="text" id="stream-url-input" placeholder="Search YouTube or paste any URL..." autocomplete="off">
       </div>
       <div class="action-btn-row">
         <button class="btn-jam-add" id="jam-add-btn">➕ Add to Jam / Search</button>
         <button class="btn-play-now" id="play-now-btn">🚀 Play Now</button>
       </div>
 
-      <!-- YouTube Search Results -->
+      <!-- Search Results -->
       <div class="search-results" id="search-results">
         <div class="search-header">
           <span id="search-status-label">YouTube Results</span>
@@ -702,11 +742,15 @@
         <div id="search-results-list"></div>
       </div>
 
-      <!-- Quick Launch Apps -->
+      <!-- Streamable Apps -->
       <div class="quick-launch-row">
         <button class="btn-launch yt" id="yt-btn">
           <span>📺</span>
-          <span>Open YouTube TV</span>
+          <span>YouTube TV</span>
+        </button>
+        <button class="btn-launch movy" id="movy-btn">
+          <span>🎬</span>
+          <span>Movy.sx</span>
         </button>
         <button class="btn-launch" id="autoplay-toggle-btn" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc;">
           <span>♾️</span>
@@ -803,7 +847,9 @@
     const searchResultsList = document.getElementById('search-results-list');
     const searchStatusLabel = document.getElementById('search-status-label');
     const searchCloseBtn = document.getElementById('search-close-btn');
+    const sourceTabs = document.getElementById('source-tabs');
     const ytBtn = document.getElementById('yt-btn');
+    const movyBtn = document.getElementById('movy-btn');
     const statusTag = document.getElementById('status-tag');
     const nowTitle = document.getElementById('now-title');
     const nowAddedBy = document.getElementById('now-added-by');
@@ -911,6 +957,81 @@
       .catch(err => showToast("Cast failed: " + err));
     }
 
+    let searchSource = 'youtube';
+
+    sourceTabs.addEventListener('click', (e) => {
+      const pill = e.target.closest('.source-pill[data-source]');
+      if (!pill) return;
+      searchSource = pill.dataset.source;
+      sourceTabs.querySelectorAll('.source-pill').forEach(p => p.classList.toggle('active', p === pill));
+      urlInput.placeholder = searchSource === 'movy'
+        ? 'Search Movy.sx movies & shows or paste URL...'
+        : 'Search YouTube or paste any URL...';
+      const q = urlInput.value.trim();
+      if (q && !isLikelyUrl(q)) {
+        runSearch(q, false);
+      }
+    });
+
+    function runSearch(query, playFirstImmediately = false) {
+      if (searchSource === 'movy') {
+        searchMovy(query, playFirstImmediately);
+      } else {
+        searchYouTube(query, playFirstImmediately);
+      }
+    }
+
+    function searchMovy(query, playFirstImmediately = false) {
+      searchResultsBox.classList.add('open');
+      searchStatusLabel.textContent = `Searching Movy.sx for "${query}"...`;
+      searchResultsList.innerHTML = '';
+
+      fetch('/api/movy/search?q=' + encodeURIComponent(query))
+        .then(r => r.json())
+        .then(data => {
+          const results = data.results || [];
+          if (results.length === 0) {
+            searchStatusLabel.textContent = 'No Movy.sx results found';
+            return;
+          }
+          if (playFirstImmediately) {
+            const top = results[0];
+            submitStream({
+              url: top.url,
+              title: top.title,
+              thumbnail: top.thumbnail,
+              channel: `Movy.sx • ${top.mediaType === 'tv' ? 'TV Show' : 'Movie'}${top.year ? ' (' + top.year + ')' : ''}`,
+              source: 'webpage'
+            }, 'now');
+            searchResultsBox.classList.remove('open');
+            urlInput.value = '';
+            return;
+          }
+          searchStatusLabel.textContent = `Movy.sx Results for "${query}"`;
+          searchResultsList.innerHTML = results.map(item => {
+            const kindLabel = item.mediaType === 'tv' ? 'TV' : 'Movie';
+            const subParts = [kindLabel, item.year, item.rating ? `★ ${item.rating}` : ''].filter(Boolean);
+            const channelLabel = `Movy.sx • ${subParts.join(' • ')}`;
+            return `
+              <div class="search-item">
+                <img class="search-thumb poster" src="${escHtml(item.thumbnail)}" alt="">
+                <div class="search-meta">
+                  <div class="search-title">${escHtml(item.title)}</div>
+                  <div class="search-sub">${escHtml(subParts.join(' • '))}</div>
+                </div>
+                <div class="search-actions">
+                  <button class="btn-mini jam" data-url="${escHtml(item.url)}" data-title="${escHtml(item.title)}" data-channel="${escHtml(channelLabel)}" data-thumb="${escHtml(item.thumbnail)}" data-source="webpage" data-mode="queue">+ Jam</button>
+                  <button class="btn-mini now" data-url="${escHtml(item.url)}" data-title="${escHtml(item.title)}" data-channel="${escHtml(channelLabel)}" data-thumb="${escHtml(item.thumbnail)}" data-source="webpage" data-mode="now">▶️</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        })
+        .catch(() => {
+          searchStatusLabel.textContent = 'Movy.sx search failed';
+        });
+    }
+
     function searchYouTube(query, playFirstImmediately = false) {
       searchResultsBox.classList.add('open');
       searchStatusLabel.textContent = `Searching "${query}"...`;
@@ -952,15 +1073,25 @@
     }
 
     searchResultsList.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-vid]');
+      const btn = e.target.closest('button[data-vid], button[data-url]');
       if (!btn) return;
-      submitStream({
-        videoId: btn.dataset.vid,
-        url: 'https://www.youtube.com/tv?v=' + btn.dataset.vid,
-        title: btn.dataset.title,
-        channel: btn.dataset.channel,
-        thumbnail: btn.dataset.thumb
-      }, btn.dataset.mode || 'queue');
+      if (btn.dataset.vid) {
+        submitStream({
+          videoId: btn.dataset.vid,
+          url: 'https://www.youtube.com/tv?v=' + btn.dataset.vid,
+          title: btn.dataset.title,
+          channel: btn.dataset.channel,
+          thumbnail: btn.dataset.thumb
+        }, btn.dataset.mode || 'queue');
+      } else {
+        submitStream({
+          url: btn.dataset.url,
+          title: btn.dataset.title,
+          channel: btn.dataset.channel || '',
+          thumbnail: btn.dataset.thumb || '',
+          source: btn.dataset.source || 'webpage'
+        }, btn.dataset.mode || 'queue');
+      }
     });
 
     searchCloseBtn.addEventListener('click', () => {
@@ -976,7 +1107,7 @@
         urlInput.value = '';
         searchResultsBox.classList.remove('open');
       } else {
-        searchYouTube(raw, mode === 'now');
+        runSearch(raw, mode === 'now');
       }
     }
 
@@ -1054,7 +1185,20 @@
       ytBtn.textContent = "⏳ Launching...";
       fetch('/api/youtube', { method: 'POST' })
         .then(() => {
-          ytBtn.innerHTML = "<span>📺</span><span>Open YouTube TV</span>";
+          ytBtn.innerHTML = "<span>📺</span><span>YouTube TV</span>";
+          fetchStatus();
+        });
+    });
+
+    movyBtn.addEventListener('click', () => {
+      movyBtn.textContent = "⏳ Launching...";
+      fetch('/api/movy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+        .then(() => {
+          movyBtn.innerHTML = "<span>🎬</span><span>Movy.sx</span>";
           fetchStatus();
         });
     });

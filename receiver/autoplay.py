@@ -109,8 +109,20 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
     }
   } catch (e) {}
 
-  var v = document.querySelector('video');
-  if (!v) {
+  var host = (location.hostname || '').toLowerCase();
+  var isMovy = host === 'movy.sx' || host.endsWith('.movy.sx');
+  var movyShell = isMovy ? document.getElementById('vp-shell') : null;
+
+  function pickVideo(root) {
+    if (!root) return null;
+    if (isMovy) {
+      return movyShell ? movyShell.querySelector('video') : null;
+    }
+    return root.querySelector('video');
+  }
+
+  var v = pickVideo(document);
+  if (!v && !isMovy) {
     try {
       var frames = document.querySelectorAll('iframe');
       for (var i = 0; i < frames.length; i++) {
@@ -124,10 +136,11 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
 
   var maximizedIframe = false;
   try {
-    var iframes = Array.from(document.querySelectorAll('iframe')).filter(function(f) {
+    var iframes = isMovy ? [] : Array.from(document.querySelectorAll('iframe')).filter(function(f) {
       var r = f.getBoundingClientRect();
       var src = (f.src || '').toLowerCase();
       if (src.indexOf('doubleclick') !== -1 || src.indexOf('googlesyndication') !== -1 || src.indexOf('ad') === 0) return false;
+      if (src.indexOf('youtube-nocookie.com/embed') !== -1 && (src.indexOf('controls=0') !== -1 || src.indexOf('mute=1') !== -1)) return false;
       return (r.width >= 260 && r.height >= 150) || f.allowFullscreen ||
              /embed|player|vid|stream|movie|tv|watch|cloud|flix/i.test(src);
     });
@@ -151,7 +164,13 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
         document.documentElement.style.setProperty('overflow', 'hidden', 'important');
         if (document.body) document.body.style.setProperty('overflow', 'hidden', 'important');
       }
-    } else if (v && !v.dataset.bcMax && window === window.top) {
+    } else if (isMovy && movyShell && !movyShell.dataset.bcMax) {
+      // Keep #vp-shell full-viewport so Movy's subtitle overlay and controls remain above <video>
+      movyShell.dataset.bcMax = '1';
+      movyShell.style.setProperty('z-index', '2147483647', 'important');
+      document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+      if (document.body) document.body.style.setProperty('overflow', 'hidden', 'important');
+    } else if (!isMovy && v && !v.dataset.bcMax && window === window.top) {
       var vr = v.getBoundingClientRect();
       if (vr.width > 200 && vr.width < window.innerWidth * 0.92) {
         v.dataset.bcMax = '1';
@@ -167,12 +186,20 @@ WEB_CINEMA_JS = """JSON.stringify((function(){
     }
   } catch (e) {}
 
-  if (!v || (v.paused && (v.currentTime || 0) < 0.5)) {
+  if (!isMovy && (!v || (v.paused && (v.currentTime || 0) < 0.5))) {
     try {
       var playBtn = document.querySelector('.vjs-big-play-button, .jw-icon-display, .plyr__control--overlaid, button[aria-label*="Play" i], .play-button');
       if (playBtn && !playBtn.dataset.bcClicked) {
         playBtn.dataset.bcClicked = '1';
         playBtn.click();
+      }
+    } catch (e) {}
+  } else if (isMovy && movyShell && (!v || (v.paused && (v.currentTime || 0) < 0.5))) {
+    try {
+      var movyPlay = movyShell.querySelector('#ButtonPlay');
+      if (movyPlay && !movyPlay.dataset.bcClicked) {
+        movyPlay.dataset.bcClicked = '1';
+        movyPlay.click();
       }
     } catch (e) {}
   }
@@ -498,28 +525,48 @@ class YouTubeAutopilot(threading.Thread):
                                               "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})
             time.sleep(0.08)
 
+    _PICK_VIDEO_JS = "(document.querySelector('#vp-shell video') || document.querySelector('video'))"
+
     def _run_queued_controls(self, c):
+        pv = self._PICK_VIDEO_JS
         while self._cmd_queue:
             action, value = self._cmd_queue.popleft()
             try:
                 if action == "toggle":
-                    c.evaluate("(function(){ var v = document.querySelector('video'); if (v) { v.paused ? v.play() : v.pause(); } })()")
+                    c.evaluate(f"(function(){{ var v = {pv}; if (v) {{ v.paused ? v.play() : v.pause(); }} }})()")
                 elif action == "play":
-                    c.evaluate("(function(){ var v = document.querySelector('video'); if (v) v.play(); })()")
+                    c.evaluate(f"(function(){{ var v = {pv}; if (v) v.play(); }})()")
                 elif action == "pause":
-                    c.evaluate("(function(){ var v = document.querySelector('video'); if (v) v.pause(); })()")
+                    c.evaluate(f"(function(){{ var v = {pv}; if (v) v.pause(); }})()")
                 elif action == "seek":
                     if value == "back":
-                        c.evaluate("(function(){ var v = document.querySelector('video'); if (v) v.currentTime = Math.max(0, v.currentTime - 10); })()")
+                        c.evaluate(f"(function(){{ var v = {pv}; if (v) v.currentTime = Math.max(0, v.currentTime - 10); }})()")
                     elif value == "fwd":
-                        c.evaluate("(function(){ var v = document.querySelector('video'); if (v) v.currentTime = Math.min(v.duration || v.currentTime + 30, v.currentTime + 30); })()")
+                        c.evaluate(f"(function(){{ var v = {pv}; if (v) v.currentTime = Math.min(v.duration || v.currentTime + 30, v.currentTime + 30); }})()")
                     elif isinstance(value, (int, float)):
-                        c.evaluate(f"(function(){{ var v = document.querySelector('video'); if (v) v.currentTime = {float(value)}; }})()")
+                        c.evaluate(f"(function(){{ var v = {pv}; if (v) v.currentTime = {float(value)}; }})()")
                 elif action == "mute":
-                    c.evaluate("(function(){ var v = document.querySelector('video'); if (v) v.muted = !v.muted; })()")
+                    c.evaluate(f"(function(){{ var v = {pv}; if (v) v.muted = !v.muted; }})()")
                 elif action == "volume" and isinstance(value, (int, float)):
                     vol = max(0.0, min(1.0, float(value)))
-                    c.evaluate(f"(function(){{ var v = document.querySelector('video'); if (v) {{ v.volume = {vol}; v.muted = ({vol} === 0); }} }})()")
+                    c.evaluate(f"(function(){{ var v = {pv}; if (v) {{ v.volume = {vol}; v.muted = ({vol} === 0); }} }})()")
+                elif action == "fullscreen":
+                    c.evaluate(
+                        "(function(){"
+                        " var btn = document.querySelector('#ButtonFullscreen');"
+                        " if (btn) { btn.click(); return; }"
+                        " if (document.fullscreenElement) { document.exitFullscreen().catch(function(){}); return; }"
+                        " var target = document.querySelector('#vp-shell') || document.querySelector('video') || document.documentElement;"
+                        " if (target && target.requestFullscreen) target.requestFullscreen().catch(function(){});"
+                        "})()"
+                    )
+                elif action == "next":
+                    c.evaluate(
+                        "(function(){"
+                        " var nxt = document.querySelector('#vp-shell a[href*=\"/tv/\"][href*=\"play=true\"]');"
+                        " if (nxt) nxt.click();"
+                        "})()"
+                    )
             except Exception as e:
                 print(f"[autoplay] control '{action}' failed: {e}")
 
@@ -592,7 +639,7 @@ class YouTubeAutopilot(threading.Thread):
 
             if has_video and t < 1.0 and paused and (now - self._last_unpause > 3.0):
                 self._last_unpause = now
-                video_cdp.evaluate("(function(){ var v = document.querySelector('video'); if (v && v.paused) { v.muted = false; v.play().catch(function(){}); } })()")
+                video_cdp.evaluate(f"(function(){{ var v = {self._PICK_VIDEO_JS}; if (v && v.paused) {{ v.muted = false; v.play().catch(function(){{}}); }} }})()")
 
             if has_video and d > 0:
                 if t >= 0.5:

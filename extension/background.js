@@ -3,14 +3,16 @@
 
 const NOISE_PATTERNS = [
   '.vtt', '.srt', '.woff', '.jpg', '.jpeg', '.png', '.gif', '.svg', '.css', '.js',
-  'analytics', 'telemetry', 'doubleclick', 'googlesyndication', '/seg-', '/frag-', '.ts?', '.m4s?'
+  'analytics', 'telemetry', 'doubleclick', 'googlesyndication', '/seg-', '/frag-',
+  '.ts?', '.m4s?', '/videos/intro.mp4'
 ];
 
 function isNoiseUrl(url) {
   const lower = url.toLowerCase();
   if (NOISE_PATTERNS.some(p => lower.includes(p))) return true;
-  // Ignore individual HLS .ts or .m4s segments (we want the playlist, not 500 chunks)
+  // Ignore individual HLS .ts/.m4s segments and fMP4 init-* segments (we want the playlist, not chunks/init headers)
   if (/\.(ts|m4s|aac)(\?|$)/i.test(lower)) return true;
+  if (/\/init-[^/]*\.(mp4|m4s)(\?|$)/i.test(lower)) return true;
   return false;
 }
 

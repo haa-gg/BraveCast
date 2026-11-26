@@ -13,7 +13,7 @@
 Commercial streaming sticks like Google Chromecast, Roku, Fire TV, or Apple TV are locked down and force unskippable ads. **BraveCast** is an open-source, zero-dependency **DIY Chromecast and Smart TV receiver** that turns any computer plugged into a TV via HDMI into an ad-free living room media center:
 
 1. **Native YouTube Casting Without Ads (DIAL Protocol):** Tap the regular **Cast** button inside the official YouTube app on iPhone (iOS) or Android, select your TV, and it launches directly into the 10-foot **YouTube Leanback (`youtube.com/tv`)** interface inside Brave Kiosk mode — blocking **100% of pre-roll and mid-roll ads** via Brave Shields.
-2. **🎉 BraveCast Jam (Spotify-Style Party Queue for Video):** Multiple friends on the same Wi-Fi can scan a QR code or open the Web Remote (`http://<ip>:8099/`), search YouTube directly, and add videos to a shared **Fair-Share Round-Robin & Upvote Queue** without hijacking what's currently playing on the TV.
+2. **🎉 BraveCast Jam (Spotify-Style Party Queue for Video):** Multiple friends on the same Wi-Fi can scan a QR code or open the Web Remote (`http://<ip>:8099/`), search **YouTube** or **Movy.sx** directly, launch streamable apps, and add videos/movies/shows to a shared **Fair-Share Round-Robin & Upvote Queue** without hijacking what's currently playing on the TV.
 3. **♾️ Continuous Auto-Hop Autopilot (Headless CDP):** Uses Chrome DevTools Protocol (`127.0.0.1:9222`) + YouTube's InnerTube API to automatically advance through your Jam Queue or hop to related YouTube videos when playback ends — never getting stuck on the YouTube TV home screen.
 4. **Native Spotify Connect Speaker:** Integrates with `librespot` in the background to advertise your TV as a high-fidelity Spotify Connect audio receiver.
 5. **1-Click Web Stream Caster Extension:** Includes a Manifest V3 Chrome/Brave extension that sniffs `.m3u8` (HLS) and `.mp4` video streams from any movie/sports website and beams them straight to your TV or Jam Queue.
@@ -213,11 +213,10 @@ git clone https://github.com/haa-gg/BraveCast.git && cd BraveCast && bash instal
 3. Select **`Living Room TV (Mac)`**.
 4. Playback starts immediately through CoreAudio/HDMI.
 
-### Casting Web Video Streams (Movies, Shows, Sports)
-1. On your laptop, navigate to any streaming site.
-2. Start the video. The StreamCaster icon badge will show the count of sniffed streams.
-3. Click the extension and tap **🚀 Cast to Glen's MacBook**.
-4. The stream immediately beams to the TV. You can control playback via the in-popup mini remote or the mobile dashboard at `http://<laptop-ip>:8099/`.
+### Casting Web Video Streams (Movies, Shows, Sports, Movy.sx)
+1. **From the Web Remote (`http://<laptop-ip>:8099/`):** Switch the search toggle to **🎬 Movy.sx** to search movies/TV shows directly, tap the **🎬 Movy.sx** app button to open the catalog, or paste any streaming URL.
+2. **From your browser (StreamCaster Extension):** Navigate to any streaming site and start playback — the StreamCaster icon badge shows the count of sniffed `.m3u8`/`.mp4` streams, or click **🌐 Cast Current Web Page** to beam the page into Brave Kiosk.
+3. Control playback via the in-popup mini remote or the mobile dashboard at `http://<laptop-ip>:8099/`.
 
 ---
 

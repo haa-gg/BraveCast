@@ -194,7 +194,7 @@ function renderStreams() {
     streamsContainer.innerHTML = '';
     streams.forEach(stream => {
       const isHls = stream.url.includes('.m3u8');
-      const ext = isHls ? "HLS" : "MP4";
+      const ext = stream.streamType || (isHls ? "HLS" : "MP4");
 
       const card = document.createElement('div');
       card.className = "stream-card";
