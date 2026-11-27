@@ -1,9 +1,15 @@
 // Stream Caster 2.0 Popup Controller
 
-const DEFAULT_HOST = "http://100.111.144.16:8099";
+const DEFAULT_HOST = "http://192.168.1.19:8099";
+const FALLBACK_HOSTS = [
+  "http://192.168.1.19:8099",
+  "http://100.111.144.16:8099",
+  "http://localhost:8099"
+];
 let targetHost = DEFAULT_HOST;
 
 const deviceDot = document.getElementById('device-dot');
+const deviceNameLabel = document.getElementById('device-name-label');
 const deviceStatusText = document.getElementById('device-status-text');
 const refreshDeviceBtn = document.getElementById('refresh-device-btn');
 const settingsSection = document.getElementById('settings-section');
@@ -50,46 +56,47 @@ saveHostBtn.addEventListener('click', () => {
 
 refreshDeviceBtn.addEventListener('click', checkDeviceStatus);
 
-// Check device status (auto-falls back to localhost:8099 for out-of-the-box local installs)
-function checkDeviceStatus() {
+async function pingCandidate(host, timeoutMs = 1800) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(`${host}/api/ping`, { signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    return { host, data };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Check device status (auto-falls back across LAN, Tailscale, and localhost)
+async function checkDeviceStatus() {
   deviceDot.className = "dot";
   deviceStatusText.textContent = "Checking connection...";
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2500);
-
-  fetch(`${targetHost}/api/ping`, { signal: controller.signal })
-    .then(r => r.json())
-    .then(data => {
-      clearTimeout(timeoutId);
-      deviceDot.className = "dot online";
-      deviceStatusText.textContent = "Online • BraveCast Ready";
-      pollPlaybackStatus();
-    })
-    .catch(() => {
-      clearTimeout(timeoutId);
-      if (targetHost !== "http://localhost:8099") {
-        fetch("http://localhost:8099/api/ping")
-          .then(r => r.json())
-          .then(() => {
-            targetHost = "http://localhost:8099";
-            targetHostInput.value = targetHost;
-            chrome.storage.local.set({ targetHost: targetHost });
-            deviceDot.className = "dot online";
-            deviceStatusText.textContent = "Online • Local Receiver";
-            pollPlaybackStatus();
-          })
-          .catch(() => {
-            deviceDot.className = "dot offline";
-            deviceStatusText.textContent = "Unreachable / Asleep";
-            miniRemote.style.display = "none";
-          });
-        return;
-      }
-      deviceDot.className = "dot offline";
-      deviceStatusText.textContent = "Unreachable / Asleep";
-      miniRemote.style.display = "none";
-    });
+  try {
+    const primary = targetHost.replace(/\/+$/, '');
+    let found = null;
+    try {
+      found = await pingCandidate(primary, 1600);
+    } catch (_) {
+      const others = FALLBACK_HOSTS.filter(h => h !== primary);
+      found = await Promise.any(others.map(h => pingCandidate(h, 2000)));
+    }
+    targetHost = found.host;
+    targetHostInput.value = targetHost;
+    chrome.storage.local.set({ targetHost: targetHost, deviceName: found.data.name || "BraveCast TV" });
+    if (deviceNameLabel && found.data.name) {
+      deviceNameLabel.textContent = found.data.name;
+    }
+    deviceDot.className = "dot online";
+    deviceStatusText.textContent = `Online • ${found.host.replace(/^https?:\/\//, '')}`;
+    pollPlaybackStatus();
+  } catch (_) {
+    deviceDot.className = "dot offline";
+    deviceStatusText.textContent = "Unreachable / Asleep";
+    miniRemote.style.display = "none";
+  }
 }
 
 // Poll playback status to show mini remote

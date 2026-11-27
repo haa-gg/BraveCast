@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Stream Caster",
-  "version": "2.0",
-  "description": "One-click beam ad-free streams to Glen's MacBook (2) over Tailscale.",
+  "version": "2.1",
+  "description": "One-click beam ad-free streams and Movy.sx / Prime Video to BraveCast.",
   "permissions": [
     "activeTab",
     "tabs",
@@ -16,9 +16,21 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.movy.sx/*",
+        "https://movy.sx/*"
+      ],
+      "js": [
+        "movy_cast.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Stream Caster • Cast to Glen's MacBook",
+    "default_title": "Stream Caster • BraveCast",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

@@ -129,10 +129,82 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.action.setBadgeText({ text: "" });
 });
 
+const FALLBACK_HOSTS = [
+  "http://192.168.1.19:8099",
+  "http://100.111.144.16:8099",
+  "http://localhost:8099"
+];
+
+async function pingHost(host, timeoutMs = 1800) {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${host}/api/ping`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const info = await res.json();
+    return { host, info };
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+async function resolveReceiverHost() {
+  const stored = await chrome.storage.local.get({ targetHost: FALLBACK_HOSTS[0] });
+  const primary = (stored.targetHost || FALLBACK_HOSTS[0]).replace(/\/+$/, "");
+  try {
+    const found = await pingHost(primary, 1600);
+    await chrome.storage.local.set({ targetHost: found.host, deviceName: found.info.name || "BraveCast TV" });
+    return found;
+  } catch (_) {}
+
+  const candidates = FALLBACK_HOSTS.filter(h => h !== primary);
+  const found = await Promise.any(candidates.map(h => pingHost(h, 2000)));
+  await chrome.storage.local.set({ targetHost: found.host, deviceName: found.info.name || "BraveCast TV" });
+  return found;
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || !msg.type) return;
+
+  if (msg.type === 'BRAVECAST_PING') {
+    resolveReceiverHost()
+      .then(found => sendResponse({ ok: true, host: found.host, info: found.info }))
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (msg.type === 'BRAVECAST_CAST') {
+    (async () => {
+      try {
+        const { host, info } = await resolveReceiverHost();
+        const payload = Object.assign({
+          mode: 'now',
+          addedBy: 'Extension'
+        }, msg.payload || {});
+        const res = await fetch(`${host}/api/cast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        sendResponse({
+          ok: true,
+          host,
+          deviceName: info.name || 'BraveCast TV',
+          result: data
+        });
+      } catch (err) {
+        sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+      }
+    })();
+    return true;
+  }
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({
     streams: [],
-    targetHost: "http://100.111.144.16:8099"
+    targetHost: FALLBACK_HOSTS[0]
   });
   chrome.action.setBadgeText({ text: "" });
 });
