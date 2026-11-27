@@ -214,7 +214,7 @@ git clone https://github.com/haa-gg/BraveCast.git && cd BraveCast && bash instal
 4. Playback starts immediately through CoreAudio/HDMI.
 
 ### Casting Web Video Streams (Movies, Shows, Sports, Movy.sx, Prime Video)
-1. **From the Web Remote (`http://<laptop-ip>:8099/`):** Switch the search toggle to **🎬 Movy.sx** or **📦 Prime** to search directly, tap the **🎬 Movy.sx** / **📦 Prime Video** app buttons to open the storefront in Brave Kiosk (Widevine DRM auto-enabled), or paste any streaming URL. *(For Prime-only titles, sign in once on the TV kiosk window — your session persists in the dedicated Brave Kiosk profile.)*
+1. **From the Web Remote (`http://<laptop-ip>:8099/`):** Switch the search toggle to **🎬 Movy.sx** or **📦 Prime** to search directly, tap the **🎬 Movy.sx** / **📦 Prime Video** app buttons to open the storefront in Brave Kiosk (Widevine DRM auto-enabled), or paste any streaming URL. *(For Prime-only titles, tap **🔑 Prime Sign-In (Windowed)** in the Web Remote to sign in once on the TV with a visible cursor & normal browser window — your session persists in the dedicated Brave Kiosk profile.)*
 2. **From your browser (StreamCaster Extension):** Navigate to any streaming site and start playback — the StreamCaster icon badge shows the count of sniffed `.m3u8`/`.mp4` streams, or click **🌐 Cast Current Web Page** (or **Cast Prime Video Page** on DRM sites) to beam the page into Brave Kiosk.
 3. Control playback via the in-popup mini remote or the mobile dashboard at `http://<laptop-ip>:8099/`.
 

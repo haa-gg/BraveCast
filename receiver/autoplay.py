@@ -390,13 +390,14 @@ def innertube_next(video_id, exclude):
 class YouTubeAutopilot(threading.Thread):
     MAX_FAILED_ADVANCES = 5   # give up if this many "next" launches in a row never start playing
 
-    def __init__(self, cdp_port, is_youtube_running, on_player_state=None, pop_jam_next=None, has_jam_items=None):
+    def __init__(self, cdp_port, is_youtube_running, on_player_state=None, pop_jam_next=None, has_jam_items=None, is_login_mode=None):
         super().__init__(daemon=True)
         self.port = cdp_port
         self.is_youtube_running = is_youtube_running
         self.on_player_state = on_player_state
         self.pop_jam_next = pop_jam_next
         self.has_jam_items = has_jam_items or (lambda: False)
+        self.is_login_mode = is_login_mode or (lambda: False)
         self.enabled = os.environ.get("BRAVECAST_AUTOPLAY") != "0"
         self.auto_guest = os.environ.get("BRAVECAST_YT_GUEST") != "0"
 
@@ -613,7 +614,15 @@ class YouTubeAutopilot(threading.Thread):
         return None, None
 
     def _tick_web_cinema(self, c):
-        """Manage generic web streaming sites (e.g. ramoflix.com, Twitch, Vimeo) in Brave Kiosk."""
+        """Manage generic web streaming sites (e.g. ramoflix.com, movy.sx, primevideo, Twitch) in Brave Kiosk."""
+        if self.is_login_mode():
+            # Keep cursor visible and page untouched while user signs in inside the windowed Brave-Kiosk profile
+            try:
+                c.evaluate("(function(){ var st = document.getElementById('bc-hide-cursor'); if (st) st.remove(); })()")
+            except Exception:
+                pass
+            return
+
         raw = c.evaluate(WEB_CINEMA_JS)
         s = json.loads(raw) if raw else {}
         if s.get("cursorInjected"):

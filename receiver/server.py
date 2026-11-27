@@ -74,7 +74,8 @@ class ReceiverState:
             "volume": 1.0,
             "muted": False,
             "lastUpdate": time.time(),
-            "youtubeRunning": False
+            "youtubeRunning": False,
+            "loginMode": False
         }
         self.sse_queues = []
         self.history = []
@@ -222,7 +223,7 @@ class ReceiverState:
 
     def update_status(self, data):
         with self.lock:
-            for k in ("state", "currentTime", "duration", "volume", "muted", "youtubeRunning"):
+            for k in ("state", "currentTime", "duration", "volume", "muted", "youtubeRunning", "loginMode"):
                 if k in data:
                     self.status[k] = data[k]
             if "stream" in data:
@@ -343,8 +344,8 @@ def ensure_widevine_opted_in(profile_dir):
         print(f"[widevine] could not update Local State: {e}")
 
 
-def launch_brave_kiosk(url, is_youtube=True):
-    """Launch Brave in dedicated, guaranteed fullscreen kiosk mode"""
+def launch_brave_kiosk(url, is_youtube=True, kiosk=True):
+    """Launch Brave in dedicated fullscreen kiosk mode (or normal windowed mode when kiosk=False for sign-in)."""
     ps.ensure_display_env()
     wake_tv_and_screen()
     try:
@@ -358,8 +359,7 @@ def launch_brave_kiosk(url, is_youtube=True):
         cmd = [
             brave_bin,
             f"--user-data-dir={KIOSK_DIR}",
-            "--kiosk",
-            "--start-fullscreen",
+            *(["--kiosk", "--start-fullscreen"] if kiosk else []),
             "--start-maximized",
             "--no-first-run",
             "--no-default-browser-check",
@@ -373,7 +373,7 @@ def launch_brave_kiosk(url, is_youtube=True):
             f"--remote-debugging-port={CDP_PORT}",
             "--remote-debugging-address=127.0.0.1",
             "--remote-allow-origins=*",
-            f"--app={url}"
+            f"--app={url}" if kiosk else url
         ]
         if is_youtube:
             cmd.append(f"--user-agent={SMART_TV_UA}")
@@ -637,13 +637,15 @@ def play_stream_item(stream_info):
     if stream_info.get("source") == "youtube" or stream_info.get("videoId"):
         vid = stream_info["videoId"]
         yt_url = f"https://www.youtube.com/tv?v={vid}"
+        was_login_mode = state_mgr.get_status().get("loginMode", False)
         state_mgr.update_status({
             "state": "playing",
             "youtubeRunning": True,
+            "loginMode": False,
             "stream": stream_info,
             "currentTime": 0,
         })
-        if autopilot.page_alive():
+        if autopilot.page_alive() and not was_login_mode:
             wake_tv_and_screen()
             ps.activate_kiosk(KIOSK_DIR)
             autopilot.notify_video(vid)
@@ -656,19 +658,23 @@ def play_stream_item(stream_info):
         state_mgr.update_status({
             "state": "playing",
             "youtubeRunning": False,
+            "loginMode": False,
             "stream": stream_info,
             "currentTime": 0,
         })
         launch_brave_kiosk(stream_info["url"], is_youtube=False)
     else:
+        was_login_mode = state_mgr.get_status().get("loginMode", False)
         state_mgr.update_status({
             "state": "playing",
             "youtubeRunning": False,
+            "loginMode": False,
             "stream": stream_info,
             "currentTime": 0,
         })
         has_active_receiver = (
-            len(state_mgr.sse_queues) > 0
+            not was_login_mode
+            and len(state_mgr.sse_queues) > 0
             and not autopilot.page_alive()
             and not autopilot.web_cinema_alive()
         )
@@ -683,9 +689,11 @@ def play_stream_item(stream_info):
 
 
 def is_anything_playing():
+    st = state_mgr.get_status()
+    if st.get("loginMode"):
+        return False
     if autopilot.is_actively_playing() or autopilot.web_cinema_alive():
         return True
-    st = state_mgr.get_status()
     if (
         st.get("state") == "playing"
         and not st.get("youtubeRunning")
@@ -720,6 +728,7 @@ autopilot = YouTubeAutopilot(
     on_player_state=state_mgr.update_status,
     pop_jam_next=handle_autopilot_jam_pop,
     has_jam_items=state_mgr.has_jam_items,
+    is_login_mode=lambda: state_mgr.get_status().get("loginMode", False),
 )
 
 
@@ -1131,7 +1140,8 @@ class BraveCastHandler(BaseHTTPRequestHandler):
 
         if path == "/api/youtube":
             url = "https://www.youtube.com/tv"
-            if not autopilot.page_alive():
+            was_login = state_mgr.get_status().get("loginMode", False)
+            if not autopilot.page_alive() or was_login:
                 launch_brave_kiosk(url, is_youtube=True)
             else:
                 wake_tv_and_screen()
@@ -1139,6 +1149,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             state_mgr.update_status({
                 "state": "playing",
                 "youtubeRunning": True,
+                "loginMode": False,
                 "stream": {"url": url, "title": "YouTube on TV (Ad-Free)", "source": "youtube"}
             })
             self.send_json({"success": True, "message": "YouTube TV opened in Brave Kiosk"})
@@ -1152,6 +1163,7 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             state_mgr.update_status({
                 "state": "playing",
                 "youtubeRunning": False,
+                "loginMode": False,
                 "stream": {"url": url, "title": "Movy.sx", "source": "webpage"}
             })
             self.send_json({"success": True, "message": "Movy.sx opened in Brave Kiosk"})
@@ -1165,9 +1177,35 @@ class BraveCastHandler(BaseHTTPRequestHandler):
             state_mgr.update_status({
                 "state": "playing",
                 "youtubeRunning": False,
+                "loginMode": False,
                 "stream": {"url": url, "title": "Amazon Prime Video", "source": "webpage"}
             })
             self.send_json({"success": True, "message": "Prime Video opened in Brave Kiosk"})
+            return
+
+        if path in ("/api/amazon/login", "/api/kiosk/login"):
+            data = self.read_json_body()
+            raw_url = (data.get("url") or "https://www.amazon.com/gp/video/storefront").strip()
+            url = raw_url if raw_url.startswith(("http://", "https://")) else "https://www.amazon.com/gp/video/storefront"
+            launch_brave_kiosk(url, is_youtube=False, kiosk=False)
+            state_mgr.update_status({
+                "state": "playing",
+                "youtubeRunning": False,
+                "loginMode": True,
+                "stream": {"url": url, "title": "Prime Video (Windowed Sign-In)", "source": "webpage"}
+            })
+            self.send_json({"success": True, "loginMode": True, "message": "Windowed Brave sign-in opened on TV"})
+            return
+
+        if path == "/api/kiosk/exit-login":
+            launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False, kiosk=True)
+            state_mgr.update_status({
+                "state": "idle",
+                "youtubeRunning": False,
+                "loginMode": False,
+                "stream": None
+            })
+            self.send_json({"success": True, "loginMode": False, "message": "Returned to BraveCast Kiosk"})
             return
 
         if path in ("/api/cast", "/api/jam/add"):
@@ -1273,9 +1311,9 @@ class BraveCastHandler(BaseHTTPRequestHandler):
                 return
 
             if action == "stop":
-                if autopilot.page_alive() or autopilot.web_cinema_alive():
+                if autopilot.page_alive() or autopilot.web_cinema_alive() or state_mgr.get_status().get("loginMode"):
                     launch_brave_kiosk(f"http://localhost:{PORT}/receiver", is_youtube=False)
-                state_mgr.update_status({"state": "idle", "youtubeRunning": False, "stream": None})
+                state_mgr.update_status({"state": "idle", "youtubeRunning": False, "loginMode": False, "stream": None})
 
             if action in ("toggle", "play", "pause", "seek", "mute", "volume", "fullscreen"):
                 autopilot.control(action, value)
